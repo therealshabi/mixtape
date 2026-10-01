@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { CassetteCase, FlippingTape } from "../components/Cassette";
 import { NoteCard } from "../components/NoteCard";
@@ -175,10 +175,35 @@ export function SharePage() {
 
 export function ListenPage() {
   const { tape } = useTapeFromRoute();
+  const playerRef = useRef<HTMLDivElement>(null);
   const [opened, setOpened] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [playSide, setPlaySide] = useState<TapeSide>("A");
+  const [playerInView, setPlayerInView] = useState(false);
   useTheme(tape?.themeId);
+
+  useEffect(() => {
+    if (!opened) {
+      setPlayerInView(false);
+      return;
+    }
+    const el = playerRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setPlayerInView(entry.isIntersecting && entry.intersectionRatio >= 0.45);
+      },
+      { threshold: [0.45], rootMargin: "0px 0px -18% 0px" },
+    );
+    const start = window.setTimeout(() => {
+      const player = el.querySelector(".player") ?? el;
+      observer.observe(player);
+    }, 1100);
+    return () => {
+      window.clearTimeout(start);
+      observer.disconnect();
+    };
+  }, [opened]);
 
   if (!tape) return <MissingTape />;
 
@@ -186,11 +211,17 @@ export function ListenPage() {
     setOpened(true);
   }
 
+  function scrollToPlayer() {
+    playerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  const showScrollHint = opened && !playing && !playerInView;
+
   return (
     <section className={`share ${opened ? "is-open" : "is-sealed"}`}>
       <h2>A Mixtape For You</h2>
       <TapeStage tape={tape} opened={opened} spinning={opened && playing} playSide={playSide} onOpen={openTape} />
-      <div className={`share-reveal ${opened ? "is-open" : ""}`} inert={!opened}>
+      <div ref={playerRef} className={`share-reveal ${opened ? "is-open" : ""}`} inert={!opened}>
         <Player
           sideA={tape.sideA}
           sideB={tape.sideB}
@@ -202,6 +233,14 @@ export function ListenPage() {
           }}
         />
       </div>
+      {showScrollHint && (
+        <button type="button" className="scroll-play-hint" onClick={scrollToPlayer}>
+          Scroll down to play
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+            <path d="M4 7l5 5 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      )}
     </section>
   );
 }
