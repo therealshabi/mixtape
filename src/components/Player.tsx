@@ -26,6 +26,7 @@ declare global {
 
 type YtPlayer = {
   loadVideoById: (id: string) => void;
+  cueVideoById: (id: string) => void;
   playVideo: () => void;
   pauseVideo: () => void;
   unMute: () => void;
@@ -232,8 +233,16 @@ export function Player({
     const controller = spotifyRef.current;
     if (!controller) return;
     try {
-      if (fromStart) controller.play();
-      else controller.resume();
+      if (fromStart) {
+        try {
+          controller.seek(0);
+        } catch {
+          /* ignore */
+        }
+        controller.play();
+      } else {
+        controller.resume();
+      }
     } catch {
       try {
         controller.togglePlay();
@@ -278,16 +287,37 @@ export function Player({
     clearYtTimer();
   }
 
-  function syncYouTube(id: string, play: boolean) {
+  function restartYouTube(player: YtPlayer, id: string, play: boolean) {
+    ytIdRef.current = id;
+    if (play) {
+      player.loadVideoById(id);
+      player.unMute?.();
+      player.setVolume?.(100);
+      return;
+    }
+    try {
+      player.cueVideoById(id);
+    } catch {
+      player.loadVideoById(id);
+      player.pauseVideo();
+    }
+    try {
+      player.seekTo(0, true);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function syncYouTube(id: string, play: boolean, fromStart = false) {
     const player = playerRef.current;
     if (!player || !readyRef.current) {
       if (play) pendingPlayRef.current = true;
       return;
     }
     try {
-      if (ytIdRef.current !== id) {
-        ytIdRef.current = id;
-        player.loadVideoById(id);
+      if (ytIdRef.current !== id || fromStart) {
+        restartYouTube(player, id, play);
+        return;
       }
       if (play) {
         player.unMute?.();
@@ -552,21 +582,22 @@ export function Player({
             const data = event?.data;
             if (!data) return;
             if (sourceRef.current !== "spotify" || spotifyHoldRef.current) return;
-            applyProgress((data.position || 0) / 1000, (data.duration || 0) / 1000);
+            const position = (data.position || 0) / 1000;
+            const length = (data.duration || 0) / 1000;
+            applyProgress(position, length);
             if (data.isPaused === false) {
               if (!wantPlayRef.current) {
                 pauseSpotify();
                 return;
               }
-              spotifyPositionRef.current = (data.position || 0) / 1000;
+              spotifyPositionRef.current = position;
               markPlaying(true);
               eject();
             } else if (data.isPaused === true) {
-              const position = (data.position || 0) / 1000;
-              const length = (data.duration || 0) / 1000;
+              if (switchingRef.current) return;
               if (position > 0.25) spotifyPositionRef.current = position;
               markPlaying(false);
-              if (!switchingRef.current && length > 1 && position > 1 && position >= length - 0.45) {
+              if (length > 1 && position > 1 && position >= length - 0.45) {
                 goToNext();
               }
             }
@@ -594,10 +625,17 @@ export function Player({
     const gen = resetProgress();
     setFileMissing(false);
     switchingRef.current = true;
-    if (source !== "youtube") pauseYouTube();
-    else clearYtTimer();
+    if (source !== "youtube") {
+      pauseYouTube();
+      try {
+        playerRef.current?.seekTo(0, true);
+      } catch {
+        /* ignore */
+      }
+    } else clearYtTimer();
     pauseSpotify();
     audioRef.current?.pause();
+    if (audioRef.current) audioRef.current.currentTime = 0;
     if (fileUrlRef.current.startsWith("blob:")) {
       URL.revokeObjectURL(fileUrlRef.current);
       fileUrlRef.current = "";
@@ -620,14 +658,25 @@ export function Player({
       if (firstLoad) {
         if (wantPlayRef.current) syncYouTube(song.id, true);
       } else {
-        syncYouTube(song.id, wantPlayRef.current);
+        syncYouTube(song.id, wantPlayRef.current, true);
       }
     }
     if (source === "spotify" && spotifyRef.current && spotifyReadyRef.current) {
       try {
+        const controller = spotifyRef.current;
+        const sameTrack = spotifyLoadedRef.current === song.id || spotifyLoadedRef.current === `${song.id}:reload`;
         spotifyHoldRef.current = true;
-        spotifyLoadedRef.current = song.id;
-        spotifyRef.current.loadUri(spotifyUri(song.id));
+        if (sameTrack) {
+          spotifyLoadedRef.current = `${song.id}:reload`;
+          controller.loadUri(`https://open.spotify.com/track/${song.id}`);
+        } else {
+          spotifyLoadedRef.current = song.id;
+          controller.loadUri(spotifyUri(song.id));
+        }
+        window.setTimeout(() => {
+          if (progressGenRef.current !== gen) return;
+          spotifyHoldRef.current = false;
+        }, 500);
         if (wantPlayRef.current) playSpotify(true);
       } catch {
         /* ignore */
@@ -743,7 +792,7 @@ export function Player({
       wantPlayRef.current = next;
       pendingPlayRef.current = next;
       markPlaying(next);
-      if (next) playSpotify(false);
+      if (next) playSpotify(spotifyPositionRef.current < 0.5);
       else pauseSpotify();
       return;
     }
