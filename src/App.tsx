@@ -44,8 +44,10 @@ export default function App() {
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/create" element={<CreatePage />} />
-            <Route path="/share/:id" element={<SharePage />} />
-            <Route path="/m/:id" element={<ListenPage />} />
+            <Route path="/share" element={<SharePage />} />
+            <Route path="/share/*" element={<SharePage />} />
+            <Route path="/m" element={<ListenPage />} />
+            <Route path="/m/*" element={<ListenPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

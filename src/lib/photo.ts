@@ -1,3 +1,5 @@
+import { hostShareFile } from "./hostAudio";
+
 const MAX_EDGE = 320;
 const TARGET_BYTES = 12_000;
 
@@ -34,4 +36,11 @@ export async function compressPhoto(file: Blob): Promise<string> {
     if (dataUrl.length * 0.75 <= TARGET_BYTES || quality === 0.18) return dataUrl;
   }
   return canvas.toDataURL("image/jpeg", 0.18);
+}
+
+export async function hostPhotoForShare(photo: string): Promise<string> {
+  if (!photo || photo.startsWith("http")) return photo;
+  if (!photo.startsWith("data:")) return photo;
+  const blob = await (await fetch(photo)).blob();
+  return hostShareFile(blob, "polaroid.jpg", blob.type || "image/jpeg");
 }

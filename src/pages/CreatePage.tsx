@@ -9,7 +9,7 @@ import { COVERS } from "../data/covers";
 import { defaultStickerCategory, PICKABLE_STICKERS, STICKER_CATEGORIES } from "../data/stickers";
 import { findTheme, isThemeId } from "../data/themes";
 import { ensureHostedSongs, importLocalSong, resolveLink } from "../lib/media";
-import { compressPhoto } from "../lib/photo";
+import { compressPhoto, hostPhotoForShare } from "../lib/photo";
 import { encodeMixtape } from "../lib/share";
 import { useTheme } from "../lib/theme";
 import type { Mixtape, TapeSide } from "../types";
@@ -138,9 +138,10 @@ export function CreatePage() {
           `Couldn't upload ${stuck.map((song) => song.title).join(", ")} for sharing. Try a smaller audio file, then Finish again.`,
         );
       }
-      const ready = { ...tape, sideA, sideB };
+      const photo = await hostPhotoForShare(tape.photo);
+      const ready = { ...tape, sideA, sideB, photo };
       setTape(ready);
-      navigate(`/share/${encodeMixtape(ready)}`);
+      navigate({ pathname: "/share", hash: encodeMixtape(ready) });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't pack this mixtape");
     } finally {

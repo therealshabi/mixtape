@@ -88,6 +88,16 @@ export function encodeMixtape(tape: Mixtape): string {
   return toBase64Url(new TextEncoder().encode(json));
 }
 
+export function mixtapePayload(hash: string, params: Record<string, string | undefined>): string {
+  const fromHash = hash.startsWith("#") ? hash.slice(1) : hash;
+  if (fromHash) return fromHash;
+  return params["*"] || params.id || "";
+}
+
+export function listenUrl(origin: string, payload: string): string {
+  return `${origin}/m#${payload}`;
+}
+
 export function decodeMixtape(payload: string): Mixtape | null {
   try {
     const json = new TextDecoder().decode(fromBase64Url(payload));

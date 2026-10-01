@@ -1,10 +1,17 @@
 import { useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { CassetteCase, CassetteTape } from "../components/Cassette";
 import { NoteCard } from "../components/NoteCard";
 import { Player } from "../components/Player";
-import { allSongs, decodeMixtape } from "../lib/share";
+import { allSongs, decodeMixtape, listenUrl, mixtapePayload } from "../lib/share";
 import { useTheme } from "../lib/theme";
+
+function useTapeFromRoute() {
+  const params = useParams();
+  const location = useLocation();
+  const payload = mixtapePayload(location.hash, params);
+  return useMemo(() => ({ payload, tape: decodeMixtape(payload) }), [payload]);
+}
 
 function MissingTape() {
   return (
@@ -51,13 +58,12 @@ function TapeStage({
 }
 
 export function SharePage() {
-  const { id = "" } = useParams();
-  const tape = useMemo(() => decodeMixtape(id), [id]);
+  const { payload, tape } = useTapeFromRoute();
   const songs = useMemo(() => (tape ? allSongs(tape) : []), [tape]);
   const [copied, setCopied] = useState(false);
   const [ejected, setEjected] = useState(false);
   const [playing, setPlaying] = useState(false);
-  const shareUrl = typeof window !== "undefined" ? `${window.location.origin}/m/${id}` : `/m/${id}`;
+  const shareUrl = typeof window !== "undefined" ? listenUrl(window.location.origin, payload) : `/m#${payload}`;
   useTheme(tape?.themeId);
 
   if (!tape) return <MissingTape />;
@@ -102,8 +108,7 @@ export function SharePage() {
 }
 
 export function ListenPage() {
-  const { id = "" } = useParams();
-  const tape = useMemo(() => decodeMixtape(id), [id]);
+  const { tape } = useTapeFromRoute();
   const songs = useMemo(() => (tape ? allSongs(tape) : []), [tape]);
   const [ejected, setEjected] = useState(false);
   const [playing, setPlaying] = useState(false);

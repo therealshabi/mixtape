@@ -62,7 +62,7 @@ export function CassetteCase({
             <div className="case-polaroid-wrap">
               <figure className="case-polaroid">
                 <span className="case-polaroid-clip" aria-hidden="true" />
-                <img src={photo} alt="Mixtape photo" />
+                <img src={photo} alt="Mixtape photo" referrerPolicy="no-referrer" />
               </figure>
             </div>
           )}
