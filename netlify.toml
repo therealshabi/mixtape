@@ -1,7 +1,25 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
 [[redirects]]
   from = "/api/host-audio"
   to = "/.netlify/functions/host-audio"
   status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/file/:id"
+  to = "/.netlify/functions/file?id=:id"
+  status = 200
+  force = true
 
 [[redirects]]
   from = "/*"
