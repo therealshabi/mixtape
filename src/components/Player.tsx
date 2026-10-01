@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getLocalFile } from "../lib/idb";
 import { songWatchUrl, spotifyUri } from "../lib/media";
-import { songSource, type Song } from "../types";
+import { songSource, type Song, type TapeSide } from "../types";
 import { SongThumb } from "./SongThumb";
 
 declare global {
@@ -28,9 +28,12 @@ type YtPlayer = {
   loadVideoById: (id: string) => void;
   playVideo: () => void;
   pauseVideo: () => void;
+  unMute: () => void;
+  setVolume: (volume: number) => void;
   seekTo: (seconds: number, allowSeek: boolean) => void;
   getCurrentTime: () => number;
   getDuration: () => number;
+  getPlayerState: () => number;
   destroy: () => void;
 };
 
@@ -131,20 +134,39 @@ function PauseIcon() {
   );
 }
 
+function FlipIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M3 5.5h7.5a3 3 0 0 1 0 6H9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M5.5 3 3 5.5 5.5 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M13 10.5H5.5a3 3 0 0 1 0-6H7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M10.5 13 13 10.5 10.5 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function Player({
-  songs,
+  sideA,
+  sideB,
   onFirstPlay,
   onPlayingChange,
+  onSideChange,
 }: {
-  songs: Song[];
+  sideA: Song[];
+  sideB: Song[];
   onFirstPlay?: () => void;
   onPlayingChange?: (playing: boolean) => void;
+  onSideChange?: (side: TapeSide) => void;
 }) {
   const playerRef = useRef<YtPlayer | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const ytSlotRef = useRef<HTMLDivElement | null>(null);
   const spotifySlotRef = useRef<HTMLDivElement | null>(null);
   const spotifyRef = useRef<SpotifyEmbedController | null>(null);
+  const catalog = useMemo(() => [...sideA, ...sideB], [sideA, sideB]);
+  const hasBothSides = sideA.length > 0 && sideB.length > 0;
+  const [playSide, setPlaySide] = useState<TapeSide>("A");
+  const songs = hasBothSides ? (playSide === "A" ? sideA : sideB) : catalog;
   const songsRef = useRef(songs);
   songsRef.current = songs;
   const readyRef = useRef(false);
@@ -156,16 +178,27 @@ export function Player({
   const firstPlayRef = useRef(false);
   const onFirstPlayRef = useRef(onFirstPlay);
   const onPlayingChangeRef = useRef(onPlayingChange);
+  const onSideChangeRef = useRef(onSideChange);
   const fileUrlRef = useRef("");
   const spotifyLoadedRef = useRef("");
+  const spotifyHoldRef = useRef(false);
   const spotifyPositionRef = useRef(0);
   const ytTimerRef = useRef<number | undefined>(undefined);
+  const progressGenRef = useRef(0);
+  const ytIdRef = useRef("");
+  const ytSyncedKeyRef = useRef<string | null>(null);
   const sourceRef = useRef<ReturnType<typeof songSource> | null>(null);
-  const idsKey = useMemo(() => songs.map((song) => `${songSource(song)}:${song.id}`).join(","), [songs]);
-  const hasYouTube = songs.some((song) => songSource(song) === "youtube");
-  const hasSpotify = songs.some((song) => songSource(song) === "spotify");
-  const firstYt = songs.find((song) => songSource(song) === "youtube");
-  const firstSpotify = songs.find((song) => songSource(song) === "spotify");
+  const hasBothRef = useRef(hasBothSides);
+  const sideRef = useRef(playSide);
+  const sideALenRef = useRef(sideA.length);
+  hasBothRef.current = hasBothSides;
+  sideRef.current = playSide;
+  sideALenRef.current = sideA.length;
+  const idsKey = useMemo(() => catalog.map((song) => `${songSource(song)}:${song.id}`).join(","), [catalog]);
+  const hasYouTube = catalog.some((song) => songSource(song) === "youtube");
+  const hasSpotify = catalog.some((song) => songSource(song) === "spotify");
+  const firstYt = catalog.find((song) => songSource(song) === "youtube");
+  const firstSpotify = catalog.find((song) => songSource(song) === "spotify");
   const [index, setIndex] = useState(0);
   const currentSong = songs[index] ?? songs[0];
   const source = currentSong ? songSource(currentSong) : null;
@@ -178,11 +211,17 @@ export function Player({
   useEffect(() => {
     onFirstPlayRef.current = onFirstPlay;
     onPlayingChangeRef.current = onPlayingChange;
-  }, [onFirstPlay, onPlayingChange]);
+    onSideChangeRef.current = onSideChange;
+  }, [onFirstPlay, onPlayingChange, onSideChange]);
 
   useEffect(() => {
     indexRef.current = index;
   }, [index]);
+
+  useEffect(() => {
+    setPlaySide("A");
+    setIndex(0);
+  }, [idsKey]);
 
   function markPlaying(next: boolean) {
     setPlaying(next);
@@ -230,7 +269,55 @@ export function Player({
     }
   }
 
-  function applyProgress(nextTime: number, nextDuration?: number) {
+  function pauseYouTube() {
+    try {
+      playerRef.current?.pauseVideo();
+    } catch {
+      /* ignore */
+    }
+    clearYtTimer();
+  }
+
+  function syncYouTube(id: string, play: boolean) {
+    const player = playerRef.current;
+    if (!player || !readyRef.current) {
+      if (play) pendingPlayRef.current = true;
+      return;
+    }
+    try {
+      if (ytIdRef.current !== id) {
+        ytIdRef.current = id;
+        player.loadVideoById(id);
+      }
+      if (play) {
+        player.unMute?.();
+        player.setVolume?.(100);
+        player.playVideo();
+      } else {
+        player.pauseVideo();
+      }
+    } catch {
+      if (play) {
+        try {
+          player.playVideo();
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+
+  function resetProgress() {
+    progressGenRef.current += 1;
+    spotifyPositionRef.current = 0;
+    setTime(0);
+    setDuration(0);
+    clearYtTimer();
+    return progressGenRef.current;
+  }
+
+  function applyProgress(nextTime: number, nextDuration?: number, gen = progressGenRef.current) {
+    if (gen !== progressGenRef.current) return;
     if (Number.isFinite(nextTime) && nextTime >= 0) setTime(nextTime);
     if (typeof nextDuration === "number" && Number.isFinite(nextDuration) && nextDuration > 0) {
       setDuration(nextDuration);
@@ -239,13 +326,14 @@ export function Player({
 
   function startYtTimer() {
     clearYtTimer();
+    const gen = progressGenRef.current;
     ytTimerRef.current = window.setInterval(() => {
-      if (sourceRef.current !== "youtube") {
+      if (gen !== progressGenRef.current || sourceRef.current !== "youtube") {
         clearYtTimer();
         return;
       }
       try {
-        applyProgress(playerRef.current?.getCurrentTime() || 0, playerRef.current?.getDuration() || 0);
+        applyProgress(playerRef.current?.getCurrentTime() || 0, playerRef.current?.getDuration() || 0, gen);
       } catch {
         /* ignore */
       }
@@ -256,6 +344,59 @@ export function Player({
     if (firstPlayRef.current) return;
     firstPlayRef.current = true;
     onFirstPlayRef.current?.();
+  }
+
+  function flipTo(next: TapeSide, continuePlaying = false, startIndex = 0) {
+    if (!hasBothRef.current || sideRef.current === next) return;
+    switchingRef.current = true;
+    if (!continuePlaying) {
+      wantPlayRef.current = false;
+      pendingPlayRef.current = false;
+      markPlaying(false);
+    }
+    resetProgress();
+    sideRef.current = next;
+    setPlaySide(next);
+    setIndex(startIndex);
+    onSideChangeRef.current?.(next);
+  }
+
+  function goToNext() {
+    const list = songsRef.current;
+    const i = indexRef.current;
+    if (!list.length) return;
+    if (i < list.length - 1) {
+      setIndex(i + 1);
+      return;
+    }
+    if (hasBothRef.current && sideRef.current === "A") {
+      flipTo("B", wantPlayRef.current);
+      return;
+    }
+    if (!hasBothRef.current) {
+      setIndex((i + 1) % list.length);
+      return;
+    }
+    wantPlayRef.current = false;
+    pendingPlayRef.current = false;
+    markPlaying(false);
+  }
+
+  function goToPrev() {
+    const list = songsRef.current;
+    const i = indexRef.current;
+    if (!list.length) return;
+    if (i > 0) {
+      setIndex(i - 1);
+      return;
+    }
+    if (hasBothRef.current && sideRef.current === "B") {
+      flipTo("A", wantPlayRef.current, Math.max(0, sideALenRef.current - 1));
+      return;
+    }
+    if (!hasBothRef.current) {
+      setIndex((i - 1 + list.length) % list.length);
+    }
   }
 
   useEffect(() => {
@@ -288,10 +429,16 @@ export function Player({
         },
         events: {
           onReady: () => {
+            if (cancelled) return;
             readyRef.current = true;
+            ytIdRef.current = firstYt.id;
+            if (import.meta.env.DEV) {
+              (window as unknown as { __mtYt?: YtPlayer | null }).__mtYt = playerRef.current;
+            }
             const current = songsRef.current[indexRef.current];
             if (current && songSource(current) === "youtube" && current.id !== firstYt.id) {
               try {
+                ytIdRef.current = current.id;
                 playerRef.current?.loadVideoById(current.id);
               } catch {
                 /* ignore */
@@ -306,25 +453,38 @@ export function Player({
             }
           },
           onStateChange: (event) => {
-            if (sourceRef.current !== "youtube") {
+            if (cancelled || sourceRef.current !== "youtube") {
               clearYtTimer();
               return;
             }
             if (event?.data === 1) {
+              if (!wantPlayRef.current) return;
+              pendingPlayRef.current = false;
               markPlaying(true);
               eject();
               startYtTimer();
             } else if (event?.data === 2) {
               clearYtTimer();
-              if (!switchingRef.current) markPlaying(false);
+              if (!switchingRef.current && !wantPlayRef.current) markPlaying(false);
             } else if (event?.data === 0) {
               clearYtTimer();
+              if (switchingRef.current || sourceRef.current !== "youtube") return;
               markPlaying(false);
-              setIndex((current) => (current + 1) % songsRef.current.length);
+              goToNext();
             }
+          },
+          onError: (event) => {
+            if (import.meta.env.DEV) {
+              (window as unknown as { __ytErr?: { code?: number; cancelled: boolean } }).__ytErr = {
+                code: event?.data,
+                cancelled,
+              };
+            }
+            if (cancelled) return;
           },
         },
       });
+      ytIdRef.current = firstYt.id;
     }
 
     void setup();
@@ -338,6 +498,11 @@ export function Player({
       }
       playerRef.current = null;
       readyRef.current = false;
+      ytIdRef.current = "";
+      ytSyncedKeyRef.current = null;
+      if (import.meta.env.DEV) {
+        (window as unknown as { __mtYt?: YtPlayer | null }).__mtYt = null;
+      }
     };
   }, [idsKey, hasYouTube, firstYt?.id]);
 
@@ -370,9 +535,11 @@ export function Player({
           spotifyReadyRef.current = true;
           const arm = () => {
             if (cancelled) return;
+            spotifyHoldRef.current = false;
             const current = songsRef.current[indexRef.current];
             if (current && songSource(current) === "spotify" && current.id !== firstSpotify.id) {
               spotifyLoadedRef.current = current.id;
+              spotifyHoldRef.current = true;
               controller.loadUri(spotifyUri(current.id));
             }
             if (wantPlayRef.current && songSource(songsRef.current[indexRef.current]) === "spotify") {
@@ -384,9 +551,13 @@ export function Player({
           controller.addListener("playback_update", (event) => {
             const data = event?.data;
             if (!data) return;
-            if (sourceRef.current !== "spotify") return;
+            if (sourceRef.current !== "spotify" || spotifyHoldRef.current) return;
             applyProgress((data.position || 0) / 1000, (data.duration || 0) / 1000);
             if (data.isPaused === false) {
+              if (!wantPlayRef.current) {
+                pauseSpotify();
+                return;
+              }
               spotifyPositionRef.current = (data.position || 0) / 1000;
               markPlaying(true);
               eject();
@@ -396,7 +567,7 @@ export function Player({
               if (position > 0.25) spotifyPositionRef.current = position;
               markPlaying(false);
               if (!switchingRef.current && length > 1 && position > 1 && position >= length - 0.45) {
-                setIndex((current) => (current + 1) % songsRef.current.length);
+                goToNext();
               }
             }
           });
@@ -420,24 +591,13 @@ export function Player({
   useEffect(() => {
     const song = songsRef.current[index];
     const source = song ? songSource(song) : null;
-    setTime(0);
-    setDuration(0);
+    const gen = resetProgress();
     setFileMissing(false);
     switchingRef.current = true;
-    if (source !== "youtube") {
-      clearYtTimer();
-      try {
-        playerRef.current?.pauseVideo();
-      } catch {
-        /* ignore */
-      }
-    }
-    if (source !== "spotify") {
-      pauseSpotify();
-    }
-    if (source !== "file") {
-      audioRef.current?.pause();
-    }
+    if (source !== "youtube") pauseYouTube();
+    else clearYtTimer();
+    pauseSpotify();
+    audioRef.current?.pause();
     if (fileUrlRef.current.startsWith("blob:")) {
       URL.revokeObjectURL(fileUrlRef.current);
       fileUrlRef.current = "";
@@ -449,24 +609,26 @@ export function Player({
       markPlaying(false);
       return undefined;
     }
-    if (source === "youtube" && playerRef.current && readyRef.current) {
-      try {
-        playerRef.current.loadVideoById(song.id);
-        if (wantPlayRef.current) playerRef.current.playVideo();
-      } catch {
-        /* ignore */
+    if (!wantPlayRef.current) {
+      pendingPlayRef.current = false;
+      markPlaying(false);
+    }
+    if (source === "youtube") {
+      const key = `${sideRef.current}:${index}:${song.id}`;
+      const firstLoad = ytSyncedKeyRef.current === null;
+      ytSyncedKeyRef.current = key;
+      if (firstLoad) {
+        if (wantPlayRef.current) syncYouTube(song.id, true);
+      } else {
+        syncYouTube(song.id, wantPlayRef.current);
       }
     }
     if (source === "spotify" && spotifyRef.current && spotifyReadyRef.current) {
       try {
-        if (spotifyLoadedRef.current !== song.id) {
-          spotifyLoadedRef.current = song.id;
-          spotifyPositionRef.current = 0;
-          spotifyRef.current.loadUri(spotifyUri(song.id));
-          if (wantPlayRef.current) playSpotify(true);
-        } else if (wantPlayRef.current) {
-          playSpotify(false);
-        }
+        spotifyHoldRef.current = true;
+        spotifyLoadedRef.current = song.id;
+        spotifyRef.current.loadUri(spotifyUri(song.id));
+        if (wantPlayRef.current) playSpotify(true);
       } catch {
         /* ignore */
       }
@@ -474,15 +636,15 @@ export function Player({
     if (source !== "spotify" && source !== "youtube") {
       markPlaying(false);
     }
-    window.setTimeout(() => {
-      switchingRef.current = false;
+    const switchTimer = window.setTimeout(() => {
+      if (gen === progressGenRef.current) switchingRef.current = false;
     }, 400);
     if (source === "file") {
       let cancelled = false;
       void (async () => {
         const hosted = song.url.startsWith("http") ? song.url : "";
         const blob = hosted ? null : await getLocalFile(song.id);
-        if (cancelled || !audioRef.current) return;
+        if (cancelled || !audioRef.current || gen !== progressGenRef.current) return;
         if (hosted) {
           audioRef.current.src = hosted;
           audioRef.current.load();
@@ -501,17 +663,20 @@ export function Player({
       })();
       return () => {
         cancelled = true;
+        window.clearTimeout(switchTimer);
       };
     }
-    return undefined;
-  }, [index, idsKey]);
+    return () => {
+      window.clearTimeout(switchTimer);
+    };
+  }, [index, idsKey, playSide]);
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return undefined;
     const onTime = () => {
       if (sourceRef.current !== "file") return;
-      applyProgress(audio.currentTime, audio.duration);
+      applyProgress(audio.currentTime, Number.isFinite(audio.duration) ? audio.duration : 0);
     };
     const onPlay = () => {
       if (sourceRef.current !== "file") return;
@@ -525,7 +690,7 @@ export function Player({
     const onEnded = () => {
       if (sourceRef.current !== "file") return;
       markPlaying(false);
-      setIndex((current) => (current + 1) % songs.length);
+      goToNext();
     };
     audio.addEventListener("timeupdate", onTime);
     audio.addEventListener("play", onPlay);
@@ -542,7 +707,7 @@ export function Player({
   if (!songs.length || !currentSong || !source) return null;
   const current = currentSong;
   const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
-  const safeTime = Number.isFinite(time) ? Math.max(0, Math.min(time, safeDuration || time)) : 0;
+  const safeTime = safeDuration > 0 && Number.isFinite(time) ? Math.max(0, Math.min(time, safeDuration)) : 0;
   const progress = safeDuration > 0 ? Math.min(100, (safeTime / safeDuration) * 100) : 0;
   const openUrl = songWatchUrl(current);
 
@@ -551,11 +716,23 @@ export function Player({
     if (source === "youtube") {
       const next = !playing;
       wantPlayRef.current = next;
-      markPlaying(next);
       pendingPlayRef.current = next;
+      markPlaying(next);
       try {
-        if (next) playerRef.current?.playVideo();
-        else playerRef.current?.pauseVideo();
+        if (next) {
+          const player = playerRef.current;
+          if (!player || !readyRef.current) {
+            pendingPlayRef.current = true;
+          } else {
+            if (ytIdRef.current !== current.id) {
+              ytIdRef.current = current.id;
+              player.loadVideoById(current.id);
+            }
+            player.playVideo();
+          }
+        } else {
+          pauseYouTube();
+        }
       } catch {
         /* ignore */
       }
@@ -588,7 +765,9 @@ export function Player({
   }
 
   function seekTo(next: number) {
-    setTime(next);
+    const clamped = safeDuration > 0 ? Math.max(0, Math.min(next, safeDuration)) : 0;
+    setTime(clamped);
+    spotifyPositionRef.current = clamped;
     if (source === "youtube") {
       try {
         playerRef.current?.seekTo(next, true);
@@ -629,9 +808,9 @@ export function Player({
         <span className={`source-pill source-${source}`}>
           {source === "file" ? "Device" : source === "spotify" ? "Spotify" : "YouTube"}
         </span>
-        {songs.length > 1 && (
+        {(hasBothSides || songs.length > 1) && (
           <span className="player-count">
-            {index + 1}/{songs.length}
+            {hasBothSides ? `${playSide} ${index + 1}/${songs.length}` : `${index + 1}/${songs.length}`}
           </span>
         )}
       </div>
@@ -669,9 +848,9 @@ export function Player({
       <div className="player-controls">
         <button
           type="button"
-          onClick={() => setIndex((i) => (i - 1 + songs.length) % songs.length)}
+          onClick={goToPrev}
           aria-label="Previous track"
-          disabled={songs.length < 2}
+          disabled={hasBothSides ? playSide === "A" && index === 0 : songs.length < 2}
         >
           <PrevIcon />
         </button>
@@ -680,13 +859,19 @@ export function Player({
         </button>
         <button
           type="button"
-          onClick={() => setIndex((i) => (i + 1) % songs.length)}
+          onClick={goToNext}
           aria-label="Next track"
-          disabled={songs.length < 2}
+          disabled={hasBothSides ? playSide === "B" && index === songs.length - 1 : songs.length < 2}
         >
           <NextIcon />
         </button>
       </div>
+      {hasBothSides && (
+        <button type="button" className="player-flip" onClick={() => flipTo(playSide === "A" ? "B" : "A", false)}>
+          <FlipIcon />
+          Flip to Side {playSide === "A" ? "B" : "A"}
+        </button>
+      )}
       </div>
     </div>
   );

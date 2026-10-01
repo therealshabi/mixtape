@@ -1,8 +1,16 @@
 import { findCover } from "../data/covers";
 import { findSticker } from "../data/stickers";
-import type { Mixtape, PlacedSticker, Song } from "../types";
+import type { Mixtape, PlacedSticker, Song, TapeSide } from "../types";
 
-export function CassetteTape({ coverId, spinning = false }: { coverId: string; spinning?: boolean }) {
+export function CassetteTape({
+  coverId,
+  spinning = false,
+  side,
+}: {
+  coverId: string;
+  spinning?: boolean;
+  side?: TapeSide;
+}) {
   const cover = findCover(coverId);
   return (
     <div className={`tape-photo ${spinning ? "spinning" : ""}`} data-testid="cassette-preview">
@@ -12,6 +20,33 @@ export function CassetteTape({ coverId, spinning = false }: { coverId: string; s
       </div>
       <span className="tape-reel left" aria-hidden="true" />
       <span className="tape-reel right" aria-hidden="true" />
+      {side && <span className="tape-side-label">Side {side}</span>}
+    </div>
+  );
+}
+
+export function FlippingTape({
+  coverId,
+  spinning = false,
+  side,
+  enabled,
+}: {
+  coverId: string;
+  spinning?: boolean;
+  side: TapeSide;
+  enabled: boolean;
+}) {
+  if (!enabled) return <CassetteTape coverId={coverId} spinning={spinning} side={side} />;
+  return (
+    <div className={`tape-3d ${side === "B" ? "is-b" : "is-a"}`}>
+      <div className="tape-3d-inner">
+        <div className="tape-face tape-face-a">
+          <CassetteTape coverId={coverId} spinning={spinning && side === "A"} side="A" />
+        </div>
+        <div className="tape-face tape-face-b">
+          <CassetteTape coverId={coverId} spinning={spinning && side === "B"} side="B" />
+        </div>
+      </div>
     </div>
   );
 }
