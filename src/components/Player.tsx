@@ -1083,6 +1083,7 @@ export function Player({
       void (async () => {
         const warm = fileWarmRef.current.get(song.id);
         if (warm) {
+          if (cancelled || !audioRef.current || gen !== progressGenRef.current) return;
           fileUrlRef.current = warm.url;
           audioRef.current.src = warm.url;
           audioRef.current.load();
