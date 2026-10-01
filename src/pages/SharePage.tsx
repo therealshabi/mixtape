@@ -28,34 +28,85 @@ function MissingTape() {
 
 function TapeStage({
   tape,
-  ejected,
+  opened,
   spinning,
   playSide,
+  onOpen,
 }: {
   tape: NonNullable<ReturnType<typeof decodeMixtape>>;
-  ejected?: boolean;
+  opened: boolean;
   spinning?: boolean;
   playSide: TapeSide;
+  onOpen?: () => void;
 }) {
   const canFlip = tape.sideA.length > 0 && tape.sideB.length > 0;
-  return (
-    <div className="share-stage">
-      {tape.note && <NoteCard value={tape.note} readOnly className="share-note" />}
-      <div className={`share-stack ${ejected === undefined ? "stacked" : ""}`}>
-        {ejected === undefined ? (
-          <FlippingTape coverId={tape.coverId} spinning={spinning} side={playSide} enabled={canFlip} />
-        ) : (
-          <div className={`tape-slide ${ejected ? "out" : ""}`}>
-            <FlippingTape coverId={tape.coverId} spinning={spinning} side={playSide} enabled={canFlip} />
+  const sealed = Boolean(onOpen) && !opened;
+  function caseArt() {
+    return (
+      <CassetteCase
+        coverId={tape.coverId}
+        stickers={tape.stickers}
+        sideA={tape.sideA}
+        sideB={tape.sideB}
+        photo={tape.photo}
+      />
+    );
+  }
+
+  if (onOpen) {
+    return (
+      <div className={`share-stage ${opened ? "is-open" : "is-sealed"}`}>
+        {tape.note && (
+          <div className={`note-slide ${opened ? "out" : ""}`}>
+            <NoteCard value={tape.note} readOnly className="share-note" />
           </div>
         )}
-        <CassetteCase
-          coverId={tape.coverId}
-          stickers={tape.stickers}
-          sideA={tape.sideA}
-          sideB={tape.sideB}
-          photo={tape.photo}
-        />
+        <div
+          className={`case-clamshell ${sealed ? "is-sealed" : ""} ${opened ? "is-open" : ""}`}
+          role={sealed ? "button" : undefined}
+          tabIndex={sealed ? 0 : undefined}
+          aria-expanded={opened}
+          aria-label={sealed ? "Open mixtape" : undefined}
+          onClick={sealed ? onOpen : undefined}
+          onKeyDown={
+            sealed
+              ? (event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onOpen();
+                  }
+                }
+              : undefined
+          }
+        >
+          <div className="case-base">
+            <div className="case-tray">
+              <FlippingTape coverId={tape.coverId} spinning={spinning} side={playSide} enabled={canFlip} />
+            </div>
+          </div>
+          <div className="case-lid">
+            <div className="case-lid-front">{caseArt()}</div>
+            <div className="case-lid-back">{caseArt()}</div>
+          </div>
+          <span className="case-hinge" aria-hidden="true" />
+          {sealed && <span className="case-open-hint">Tap to open</span>}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`share-stage ${opened ? "is-open" : "is-sealed"}`}>
+      {tape.note && (
+        <div className={`note-slide ${opened ? "out" : ""}`}>
+          <NoteCard value={tape.note} readOnly className="share-note" />
+        </div>
+      )}
+      <div className="share-stack">
+        <div className={`tape-slide ${opened ? "out" : ""}`}>
+          <FlippingTape coverId={tape.coverId} spinning={spinning} side={playSide} enabled={canFlip} />
+        </div>
+        <div className="case-stay">{caseArt()}</div>
       </div>
     </div>
   );
@@ -89,7 +140,7 @@ export function SharePage() {
   return (
     <section className="share">
       <h2>Share Your Mixtape</h2>
-      <TapeStage tape={tape} ejected={ejected} spinning={ejected && playing} playSide={playSide} />
+      <TapeStage tape={tape} opened={ejected} spinning={ejected && playing} playSide={playSide} />
       <Player
         sideA={tape.sideA}
         sideB={tape.sideB}
@@ -124,27 +175,33 @@ export function SharePage() {
 
 export function ListenPage() {
   const { tape } = useTapeFromRoute();
-  const [ejected, setEjected] = useState(false);
+  const [opened, setOpened] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [playSide, setPlaySide] = useState<TapeSide>("A");
   useTheme(tape?.themeId);
 
   if (!tape) return <MissingTape />;
 
+  function openTape() {
+    setOpened(true);
+  }
+
   return (
-    <section className="share">
+    <section className={`share ${opened ? "is-open" : "is-sealed"}`}>
       <h2>A Mixtape For You</h2>
-      <TapeStage tape={tape} ejected={ejected} spinning={ejected && playing} playSide={playSide} />
-      <Player
-        sideA={tape.sideA}
-        sideB={tape.sideB}
-        onFirstPlay={() => setEjected(true)}
-        onPlayingChange={setPlaying}
-        onSideChange={(side) => {
-          setEjected(true);
-          setPlaySide(side);
-        }}
-      />
+      <TapeStage tape={tape} opened={opened} spinning={opened && playing} playSide={playSide} onOpen={openTape} />
+      <div className={`share-reveal ${opened ? "is-open" : ""}`} inert={!opened}>
+        <Player
+          sideA={tape.sideA}
+          sideB={tape.sideB}
+          onFirstPlay={openTape}
+          onPlayingChange={setPlaying}
+          onSideChange={(side) => {
+            openTape();
+            setPlaySide(side);
+          }}
+        />
+      </div>
     </section>
   );
 }
