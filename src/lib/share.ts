@@ -91,11 +91,57 @@ export function encodeMixtape(tape: Mixtape): string {
 export function mixtapePayload(hash: string, params: Record<string, string | undefined>): string {
   const fromHash = hash.startsWith("#") ? hash.slice(1) : hash;
   if (fromHash) return fromHash;
-  return params["*"] || params.id || "";
+  const splat = params["*"] || params.id || "";
+  return splat.replace(/\/+$/, "");
+}
+
+export function isTapeId(value: string): boolean {
+  return /^[a-z0-9]{8,14}$/.test(value) && !value.startsWith("ey");
 }
 
 export function listenUrl(origin: string, payload: string): string {
+  if (isTapeId(payload)) return `${origin}/m/${payload}`;
   return `${origin}/m#${payload}`;
+}
+
+const TAPE_CACHE = "mixtape-id:";
+
+export async function publishTape(payload: string): Promise<string> {
+  const res = await fetch("/api/tape", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ payload }),
+  });
+  const body = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+  if (!res.ok || !body.id || !isTapeId(body.id)) {
+    throw new Error(body.error || "Couldn't save this mixtape link");
+  }
+  try {
+    sessionStorage.setItem(TAPE_CACHE + body.id, payload);
+  } catch {
+    /* ignore */
+  }
+  return body.id;
+}
+
+export async function fetchTapePayload(id: string): Promise<string> {
+  try {
+    const cached = sessionStorage.getItem(TAPE_CACHE + id);
+    if (cached) return cached;
+  } catch {
+    /* ignore */
+  }
+  const res = await fetch(`/api/tape/${encodeURIComponent(id)}`);
+  const body = (await res.json().catch(() => ({}))) as { payload?: string; error?: string };
+  if (!res.ok || !body.payload) {
+    throw new Error(body.error || "Mixtape not found");
+  }
+  try {
+    sessionStorage.setItem(TAPE_CACHE + id, body.payload);
+  } catch {
+    /* ignore */
+  }
+  return body.payload;
 }
 
 export function decodeMixtape(payload: string): Mixtape | null {

@@ -3,7 +3,7 @@ import { Link, useLocation, useParams } from "react-router-dom";
 import { CassetteCase, FlippingTape } from "../components/Cassette";
 import { NoteCard } from "../components/NoteCard";
 import { Player } from "../components/Player";
-import { decodeMixtape, listenUrl, mixtapePayload } from "../lib/share";
+import { decodeMixtape, fetchTapePayload, isTapeId, listenUrl, mixtapePayload } from "../lib/share";
 import { useTheme } from "../lib/theme";
 import type { TapeSide } from "../types";
 
@@ -11,7 +11,48 @@ function useTapeFromRoute() {
   const params = useParams();
   const location = useLocation();
   const payload = mixtapePayload(location.hash, params);
-  return useMemo(() => ({ payload, tape: decodeMixtape(payload) }), [payload]);
+  const inline = useMemo(() => decodeMixtape(payload), [payload]);
+  const [remote, setRemote] = useState<ReturnType<typeof decodeMixtape>>(null);
+  const [loading, setLoading] = useState(() => !inline && isTapeId(payload));
+
+  useEffect(() => {
+    if (inline) {
+      setRemote(null);
+      setLoading(false);
+      return;
+    }
+    if (!isTapeId(payload)) {
+      setRemote(null);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    void fetchTapePayload(payload)
+      .then((encoded) => {
+        if (!cancelled) setRemote(decodeMixtape(encoded));
+      })
+      .catch(() => {
+        if (!cancelled) setRemote(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [payload, inline]);
+
+  return { payload, tape: inline || remote, loading };
+}
+
+function OpeningTape() {
+  return (
+    <section className="share missing">
+      <h2>Opening mixtape…</h2>
+      <p>One moment while we pull this tape off the shelf.</p>
+    </section>
+  );
 }
 
 function MissingTape() {
@@ -113,14 +154,15 @@ function TapeStage({
 }
 
 export function SharePage() {
-  const { payload, tape } = useTapeFromRoute();
+  const { payload, tape, loading } = useTapeFromRoute();
   const [copied, setCopied] = useState(false);
   const [ejected, setEjected] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [playSide, setPlaySide] = useState<TapeSide>("A");
-  const shareUrl = typeof window !== "undefined" ? listenUrl(window.location.origin, payload) : `/m#${payload}`;
+  const shareUrl = typeof window !== "undefined" ? listenUrl(window.location.origin, payload) : `/m/${payload}`;
   useTheme(tape?.themeId);
 
+  if (loading) return <OpeningTape />;
   if (!tape) return <MissingTape />;
 
   const songs = [...tape.sideA, ...tape.sideB];
@@ -174,7 +216,7 @@ export function SharePage() {
 }
 
 export function ListenPage() {
-  const { tape } = useTapeFromRoute();
+  const { tape, loading } = useTapeFromRoute();
   const playerRef = useRef<HTMLDivElement>(null);
   const [opened, setOpened] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -205,6 +247,7 @@ export function ListenPage() {
     };
   }, [opened]);
 
+  if (loading) return <OpeningTape />;
   if (!tape) return <MissingTape />;
 
   function openTape() {

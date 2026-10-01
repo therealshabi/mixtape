@@ -22,6 +22,18 @@
   force = true
 
 [[redirects]]
+  from = "/api/tape"
+  to = "/.netlify/functions/tape"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/tape/:id"
+  to = "/.netlify/functions/tape?id=:id"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

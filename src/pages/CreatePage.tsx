@@ -10,7 +10,7 @@ import { defaultStickerCategory, PICKABLE_STICKERS, STICKER_CATEGORIES } from ".
 import { findTheme, isThemeId } from "../data/themes";
 import { ensureHostedSongs, importLocalSong, resolveLink } from "../lib/media";
 import { compressPhoto, hostPhotoForShare } from "../lib/photo";
-import { encodeMixtape } from "../lib/share";
+import { encodeMixtape, publishTape } from "../lib/share";
 import { useTheme } from "../lib/theme";
 import type { Mixtape, TapeSide } from "../types";
 import { MAX_NOTE, MAX_SONGS_PER_SIDE, MAX_STICKERS } from "../types";
@@ -141,7 +141,13 @@ export function CreatePage() {
       const photo = await hostPhotoForShare(tape.photo);
       const ready = { ...tape, sideA, sideB, photo };
       setTape(ready);
-      navigate({ pathname: "/share", hash: encodeMixtape(ready) });
+      const encoded = encodeMixtape(ready);
+      try {
+        const id = await publishTape(encoded);
+        navigate(`/share/${id}`);
+      } catch {
+        navigate({ pathname: "/share", hash: encoded });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't pack this mixtape");
     } finally {
