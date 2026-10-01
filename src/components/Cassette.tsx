@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { findCover } from "../data/covers";
 import { findSticker } from "../data/stickers";
 import type { Mixtape, PlacedSticker, Song, TapeSide } from "../types";
@@ -51,12 +52,11 @@ export function FlippingTape({
   );
 }
 
-function SongLines({ songs, compact }: { songs: Song[]; compact?: boolean }) {
-  const visible = songs.slice(0, compact ? 4 : 6);
-  if (!visible.length) return null;
+function SongLines({ songs }: { songs: Song[] }) {
+  if (!songs.length) return <ol className="case-songs" />;
   return (
     <ol className="case-songs">
-      {visible.map((song) => (
+      {songs.map((song) => (
         <li key={song.id}>{song.title}</li>
       ))}
     </ol>
@@ -135,8 +135,12 @@ export function CassetteCase({
           )}
         </div>
         {hasSongs && (
-          <div className="case-tracklists">
-            <SongLines songs={[...sideA, ...sideB]} compact={compact} />
+          <div
+            className="case-tracklists"
+            style={{ "--track-count": Math.max(sideA.length, sideB.length, 5) } as CSSProperties}
+          >
+            <SongLines songs={sideA} />
+            <SongLines songs={sideB} />
           </div>
         )}
       </div>

@@ -242,8 +242,7 @@ h2 {
   right: 16px;
   top: 31px;
   height: 127px;
-  background-image: linear-gradient(to bottom, var(--paper-line) 0 1px, transparent 1px 21px);
-  background-size: 100% 21px;
+  display: none;
 }
 
 .note-text {
@@ -253,18 +252,37 @@ h2 {
   width: calc(100% - 64px);
   height: 127px;
   margin: 0;
+  padding: 0 8px 4px 0;
+  box-sizing: border-box;
   font-family: Caveat, cursive;
   font-size: 16px;
   line-height: 21px;
   color: var(--hand);
   white-space: pre-wrap;
-  overflow: hidden;
-  text-align: justify;
+  overflow-wrap: break-word;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--hand) 32%, transparent) transparent;
+  text-align: left;
+  background-image: linear-gradient(to bottom, var(--paper-line) 0 1px, transparent 1px 21px);
+  background-size: 100% 21px;
+  background-attachment: local;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+.note-text::-webkit-scrollbar {
+  width: 6px;
+}
+.note-text::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--hand) 32%, transparent);
+  border-radius: 99px;
 }
 
 .note-input {
   border: 0;
-  background: transparent;
+  background-color: transparent;
   resize: none;
   outline: none;
   width: 100%;
@@ -552,35 +570,39 @@ h2 {
 }
 
 .case-tracklists {
+  --track-count: 5;
   position: absolute;
-  left: 8%;
-  right: 8%;
-  top: 60%;
-  bottom: 8%;
+  left: 7.2%;
+  right: 7.2%;
+  top: 59%;
+  bottom: 6.5%;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 14px;
+  align-content: start;
   pointer-events: none;
   z-index: 1;
+  container-type: size;
 }
 
 .case-songs {
   list-style: none;
   margin: 0;
   padding: 0;
+  min-width: 0;
 }
 
 .case-songs li {
   font-family: Caveat, cursive;
   color: #25588a;
-  font-size: 16px;
-  line-height: 1.15;
+  height: calc(100cqh / var(--track-count));
+  font-size: clamp(8px, calc(100cqh / var(--track-count) * 0.78), 13px);
+  line-height: calc(100cqh / var(--track-count));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.case-compact .case-songs li { font-size: 14px; }
 
 .sticker-panel {
   width: 100%;
@@ -1177,6 +1199,12 @@ h2 {
   height: 152px;
   border: 0;
   max-width: 100%;
+}
+.embed-warm {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 .missing { text-align: center; }
 

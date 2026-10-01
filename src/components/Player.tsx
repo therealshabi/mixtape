@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getLocalFile } from "../lib/idb";
-import { songWatchUrl, spotifyUri } from "../lib/media";
+import { songArtwork, songWatchUrl, spotifyUri } from "../lib/media";
+import { thumbnailUrl } from "../lib/youtube";
 import { songSource, type Song, type TapeSide } from "../types";
 import { SongThumb } from "./SongThumb";
 
@@ -14,7 +15,7 @@ declare global {
           width?: string | number;
           height?: string | number;
           playerVars: Record<string, number | string>;
-          events: Record<string, (event?: { data: number }) => void>;
+          events: Record<string, (event?: { data: number; target?: YtPlayer }) => void>;
         },
       ) => YtPlayer;
     };
@@ -29,6 +30,7 @@ type YtPlayer = {
   cueVideoById: (id: string) => void;
   playVideo: () => void;
   pauseVideo: () => void;
+  mute: () => void;
   unMute: () => void;
   setVolume: (volume: number) => void;
   seekTo: (seconds: number, allowSeek: boolean) => void;
@@ -92,6 +94,67 @@ function loadSpotifyApi(): Promise<SpotifyIFrameAPI> {
     script.src = "https://open.spotify.com/embed/iframe-api/v1";
     document.head.appendChild(script);
   });
+}
+
+function upcomingSongs(
+  sideA: Song[],
+  sideB: Song[],
+  playSide: TapeSide,
+  index: number,
+  hasBoth: boolean,
+  count = 2,
+): Song[] {
+  const catalog = hasBoth ? null : [...sideA, ...sideB];
+  let side = playSide;
+  let list = hasBoth ? (playSide === "A" ? sideA : sideB) : catalog || [];
+  let i = index;
+  const out: Song[] = [];
+  const seen = new Set<string>();
+  const keyOf = (song: Song) => `${songSource(song)}:${song.id}`;
+  if (list[index]) seen.add(keyOf(list[index]));
+  while (out.length < count && list.length) {
+    if (i < list.length - 1) {
+      i += 1;
+      const next = list[i];
+      const key = keyOf(next);
+      if (seen.has(key)) break;
+      seen.add(key);
+      out.push(next);
+      continue;
+    }
+    if (hasBoth && side === "A" && sideB.length) {
+      side = "B";
+      list = sideB;
+      i = 0;
+      const next = list[0];
+      const key = keyOf(next);
+      if (seen.has(key)) break;
+      seen.add(key);
+      out.push(next);
+      continue;
+    }
+    if (!hasBoth && list.length > 1) {
+      i = (i + 1) % list.length;
+      const next = list[i];
+      const key = keyOf(next);
+      if (seen.has(key)) break;
+      seen.add(key);
+      out.push(next);
+      continue;
+    }
+    break;
+  }
+  return out;
+}
+
+function warmArtwork(songs: Song[]) {
+  for (const song of songs) {
+    const src = songArtwork(song) || (songSource(song) === "youtube" ? thumbnailUrl(song.id) : "");
+    if (!src || src.startsWith("data:")) continue;
+    const img = new Image();
+    img.decoding = "async";
+    img.src = src;
+  }
 }
 
 function fmt(seconds: number) {
@@ -162,7 +225,9 @@ export function Player({
   const playerRef = useRef<YtPlayer | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const ytSlotRef = useRef<HTMLDivElement | null>(null);
+  const ytWarmSlotRef = useRef<HTMLDivElement | null>(null);
   const spotifySlotRef = useRef<HTMLDivElement | null>(null);
+  const spotifyWarmSlotRef = useRef<HTMLDivElement | null>(null);
   const spotifyRef = useRef<SpotifyEmbedController | null>(null);
   const catalog = useMemo(() => [...sideA, ...sideB], [sideA, sideB]);
   const hasBothSides = sideA.length > 0 && sideB.length > 0;
@@ -188,6 +253,9 @@ export function Player({
   const progressGenRef = useRef(0);
   const ytIdRef = useRef("");
   const ytSyncedKeyRef = useRef<string | null>(null);
+  const ytWarmPoolRef = useRef<{ id: string; player: YtPlayer }[]>([]);
+  const spotifyWarmPoolRef = useRef<{ id: string; controller: SpotifyEmbedController }[]>([]);
+  const fileWarmRef = useRef<Map<string, { url: string; audio: HTMLAudioElement; ownedBlob: boolean }>>(new Map());
   const sourceRef = useRef<ReturnType<typeof songSource> | null>(null);
   const hasBothRef = useRef(hasBothSides);
   const sideRef = useRef(playSide);
@@ -429,6 +497,310 @@ export function Player({
     }
   }
 
+  function onYtStateChange(event?: { data: number; target?: YtPlayer }) {
+    const target = event?.target;
+    if (target && playerRef.current && target !== playerRef.current) {
+      if (event?.data === 1) {
+        try {
+          target.mute?.();
+          target.setVolume?.(0);
+          target.pauseVideo();
+        } catch {
+          /* ignore */
+        }
+      }
+      return;
+    }
+    if (sourceRef.current !== "youtube") {
+      clearYtTimer();
+      return;
+    }
+    if (event?.data === 1) {
+      if (!wantPlayRef.current) return;
+      pendingPlayRef.current = false;
+      markPlaying(true);
+      eject();
+      startYtTimer();
+    } else if (event?.data === 2) {
+      clearYtTimer();
+      if (!switchingRef.current && !wantPlayRef.current) markPlaying(false);
+    } else if (event?.data === 0) {
+      clearYtTimer();
+      if (switchingRef.current || sourceRef.current !== "youtube") return;
+      markPlaying(false);
+      goToNext();
+    }
+  }
+
+  function destroyYtWarms() {
+    for (const warm of ytWarmPoolRef.current) {
+      if (warm.player === playerRef.current) continue;
+      try {
+        warm.player.destroy();
+      } catch {
+        /* ignore */
+      }
+    }
+    ytWarmPoolRef.current = [];
+    ytWarmSlotRef.current?.replaceChildren();
+  }
+
+  function destroySpotifyWarms() {
+    for (const warm of spotifyWarmPoolRef.current) {
+      if (warm.controller === spotifyRef.current) continue;
+      try {
+        warm.controller.destroy();
+      } catch {
+        /* ignore */
+      }
+    }
+    spotifyWarmPoolRef.current = [];
+    spotifyWarmSlotRef.current?.replaceChildren();
+  }
+
+  function pruneFileWarms(keepIds: Set<string>) {
+    for (const [id, warm] of fileWarmRef.current) {
+      if (keepIds.has(id)) continue;
+      try {
+        warm.audio.pause();
+        warm.audio.removeAttribute("src");
+        warm.audio.load();
+      } catch {
+        /* ignore */
+      }
+      if (warm.ownedBlob && warm.url !== fileUrlRef.current) {
+        URL.revokeObjectURL(warm.url);
+      }
+      fileWarmRef.current.delete(id);
+    }
+  }
+
+  function promoteYtWarm(id: string): boolean {
+    const idx = ytWarmPoolRef.current.findIndex((warm) => warm.id === id);
+    if (idx < 0) return false;
+    const warm = ytWarmPoolRef.current[idx];
+    const old = playerRef.current;
+    ytWarmPoolRef.current.splice(idx, 1);
+    playerRef.current = warm.player;
+    readyRef.current = true;
+    ytIdRef.current = id;
+    if (old && old !== warm.player) {
+      try {
+        old.pauseVideo();
+        old.mute?.();
+        old.setVolume?.(0);
+      } catch {
+        /* ignore */
+      }
+      ytWarmPoolRef.current.push({ id: "", player: old });
+    }
+    if (import.meta.env.DEV) {
+      (window as unknown as { __mtYt?: YtPlayer | null }).__mtYt = playerRef.current;
+    }
+    return true;
+  }
+
+  function promoteSpotifyWarm(id: string): boolean {
+    const idx = spotifyWarmPoolRef.current.findIndex((warm) => warm.id === id);
+    if (idx < 0) return false;
+    const warm = spotifyWarmPoolRef.current[idx];
+    const old = spotifyRef.current;
+    spotifyWarmPoolRef.current.splice(idx, 1);
+    spotifyRef.current = warm.controller;
+    spotifyReadyRef.current = true;
+    spotifyLoadedRef.current = id;
+    if (old && old !== warm.controller) {
+      try {
+        old.pause();
+      } catch {
+        /* ignore */
+      }
+      spotifyWarmPoolRef.current.push({ id: "", controller: old });
+    }
+    return true;
+  }
+
+  function attachSpotifyWarmListeners(controller: SpotifyEmbedController) {
+    controller.addListener("playback_update", (event) => {
+      if (controller !== spotifyRef.current) {
+        if (event?.data?.isPaused === false) {
+          try {
+            controller.pause();
+          } catch {
+            /* ignore */
+          }
+        }
+        return;
+      }
+      const data = event?.data;
+      if (!data) return;
+      if (sourceRef.current !== "spotify" || spotifyHoldRef.current) return;
+      const position = (data.position || 0) / 1000;
+      const length = (data.duration || 0) / 1000;
+      applyProgress(position, length);
+      if (data.isPaused === false) {
+        if (!wantPlayRef.current) {
+          pauseSpotify();
+          return;
+        }
+        spotifyPositionRef.current = position;
+        markPlaying(true);
+        eject();
+      } else if (data.isPaused === true) {
+        if (switchingRef.current) return;
+        if (position > 0.25) spotifyPositionRef.current = position;
+        markPlaying(false);
+        if (length > 1 && position > 1 && position >= length - 0.45) {
+          goToNext();
+        }
+      }
+    });
+  }
+
+  async function warmNextTracks() {
+    const current = songsRef.current[indexRef.current];
+    const upcoming = upcomingSongs(sideA, sideB, sideRef.current, indexRef.current, hasBothRef.current, 2);
+    warmArtwork(upcoming);
+    const keepFiles = new Set(
+      [current, ...upcoming].filter((song) => song && songSource(song) === "file").map((song) => song.id),
+    );
+    pruneFileWarms(keepFiles);
+
+    for (const song of upcoming) {
+      if (songSource(song) !== "file" || fileWarmRef.current.has(song.id)) continue;
+      const hosted = song.url.startsWith("http") ? song.url : "";
+      const blob = hosted ? null : await getLocalFile(song.id);
+      if (fileWarmRef.current.has(song.id)) continue;
+      const url = hosted || (blob ? URL.createObjectURL(blob) : "");
+      if (!url) continue;
+      const audio = new Audio();
+      audio.preload = "auto";
+      audio.src = url;
+      audio.load();
+      fileWarmRef.current.set(song.id, { url, audio, ownedBlob: !hosted && url.startsWith("blob:") });
+    }
+
+    const nextYt = upcoming.filter((song) => songSource(song) === "youtube").map((song) => song.id).slice(0, 2);
+    if (nextYt.length) {
+      await loadYouTubeApi();
+    }
+    if (nextYt.length && window.YT?.Player) {
+      const assigned = new Set<string>();
+      for (const warm of ytWarmPoolRef.current) {
+        if (warm.player === playerRef.current) continue;
+        const take = nextYt.find((id) => !assigned.has(id));
+        if (!take) continue;
+        assigned.add(take);
+        if (warm.id === take) continue;
+        warm.id = take;
+        try {
+          warm.player.mute?.();
+          warm.player.setVolume?.(0);
+          warm.player.cueVideoById(take);
+        } catch {
+          /* ignore */
+        }
+      }
+      for (const id of nextYt) {
+        if (assigned.has(id) || ytWarmPoolRef.current.some((warm) => warm.id === id)) continue;
+        const slot = ytWarmSlotRef.current;
+        if (!slot || ytWarmPoolRef.current.length >= 2) continue;
+        const mount = document.createElement("div");
+        slot.appendChild(mount);
+        try {
+          const player = new window.YT.Player(mount, {
+            videoId: id,
+            width: 240,
+            height: 136,
+            playerVars: {
+              autoplay: 0,
+              controls: 0,
+              disablekb: 1,
+              fs: 0,
+              rel: 0,
+              modestbranding: 1,
+              playsinline: 1,
+              origin: window.location.origin,
+              enablejsapi: 1,
+              widget_referrer: window.location.origin,
+            },
+            events: {
+              onReady: (event) => {
+                const target = event?.target;
+                try {
+                  target?.mute?.();
+                  target?.setVolume?.(0);
+                  target?.cueVideoById(id);
+                } catch {
+                  /* ignore */
+                }
+              },
+              onStateChange: onYtStateChange,
+            },
+          });
+          ytWarmPoolRef.current.push({ id, player });
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    const nextSpotify = upcoming.filter((song) => songSource(song) === "spotify").map((song) => song.id).slice(0, 2);
+    if (nextSpotify.length && !window.__spotifyIframeApi) {
+      try {
+        await loadSpotifyApi();
+      } catch {
+        /* ignore */
+      }
+    }
+    const api = window.__spotifyIframeApi;
+    const spotSlot = spotifyWarmSlotRef.current;
+    if (nextSpotify.length && api && spotSlot) {
+      const assigned = new Set<string>();
+      for (const warm of spotifyWarmPoolRef.current) {
+        if (warm.controller === spotifyRef.current) continue;
+        const take = nextSpotify.find((id) => !assigned.has(id));
+        if (!take) continue;
+        assigned.add(take);
+        if (warm.id === take) continue;
+        warm.id = take;
+        try {
+          warm.controller.loadUri(spotifyUri(take));
+        } catch {
+          /* ignore */
+        }
+      }
+      for (const id of nextSpotify) {
+        if (assigned.has(id) || spotifyWarmPoolRef.current.some((warm) => warm.id === id)) continue;
+        if (spotifyWarmPoolRef.current.length >= 2) continue;
+        const mount = document.createElement("div");
+        spotSlot.appendChild(mount);
+        try {
+          api.createController(mount, { uri: spotifyUri(id), width: 320, height: 152 }, (controller) => {
+            if (spotifyWarmPoolRef.current.some((warm) => warm.controller === controller)) return;
+            spotifyWarmPoolRef.current.push({ id, controller });
+            attachSpotifyWarmListeners(controller);
+            controller.addListener("ready", () => {
+              if (controller === spotifyRef.current) return;
+              try {
+                controller.pause();
+              } catch {
+                /* ignore */
+              }
+            });
+            try {
+              controller.pause();
+            } catch {
+              /* ignore */
+            }
+          });
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
     readyRef.current = false;
@@ -483,25 +855,8 @@ export function Player({
             }
           },
           onStateChange: (event) => {
-            if (cancelled || sourceRef.current !== "youtube") {
-              clearYtTimer();
-              return;
-            }
-            if (event?.data === 1) {
-              if (!wantPlayRef.current) return;
-              pendingPlayRef.current = false;
-              markPlaying(true);
-              eject();
-              startYtTimer();
-            } else if (event?.data === 2) {
-              clearYtTimer();
-              if (!switchingRef.current && !wantPlayRef.current) markPlaying(false);
-            } else if (event?.data === 0) {
-              clearYtTimer();
-              if (switchingRef.current || sourceRef.current !== "youtube") return;
-              markPlaying(false);
-              goToNext();
-            }
+            if (cancelled) return;
+            onYtStateChange(event);
           },
           onError: (event) => {
             if (import.meta.env.DEV) {
@@ -530,6 +885,7 @@ export function Player({
       readyRef.current = false;
       ytIdRef.current = "";
       ytSyncedKeyRef.current = null;
+      destroyYtWarms();
       if (import.meta.env.DEV) {
         (window as unknown as { __mtYt?: YtPlayer | null }).__mtYt = null;
       }
@@ -579,6 +935,16 @@ export function Player({
           controller.addListener("ready", arm);
           arm();
           controller.addListener("playback_update", (event) => {
+            if (controller !== spotifyRef.current) {
+              if (event?.data?.isPaused === false) {
+                try {
+                  controller.pause();
+                } catch {
+                  /* ignore */
+                }
+              }
+              return;
+            }
             const data = event?.data;
             if (!data) return;
             if (sourceRef.current !== "spotify" || spotifyHoldRef.current) return;
@@ -616,6 +982,7 @@ export function Player({
       }
       spotifyRef.current = null;
       spotifyReadyRef.current = false;
+      destroySpotifyWarms();
     };
   }, [idsKey, hasSpotify, firstSpotify?.id]);
 
@@ -637,7 +1004,8 @@ export function Player({
     audioRef.current?.pause();
     if (audioRef.current) audioRef.current.currentTime = 0;
     if (fileUrlRef.current.startsWith("blob:")) {
-      URL.revokeObjectURL(fileUrlRef.current);
+      const stillWarm = [...fileWarmRef.current.values()].some((warm) => warm.url === fileUrlRef.current);
+      if (!stillWarm) URL.revokeObjectURL(fileUrlRef.current);
       fileUrlRef.current = "";
     }
 
@@ -655,31 +1023,53 @@ export function Player({
       const key = `${sideRef.current}:${index}:${song.id}`;
       const firstLoad = ytSyncedKeyRef.current === null;
       ytSyncedKeyRef.current = key;
-      if (firstLoad) {
+      const promoted = !firstLoad && promoteYtWarm(song.id);
+      if (promoted) {
+        if (wantPlayRef.current) {
+          try {
+            playerRef.current?.unMute?.();
+            playerRef.current?.setVolume?.(100);
+            playerRef.current?.seekTo(0, true);
+            playerRef.current?.playVideo();
+          } catch {
+            /* ignore */
+          }
+        }
+      } else if (firstLoad) {
         if (wantPlayRef.current) syncYouTube(song.id, true);
       } else {
         syncYouTube(song.id, wantPlayRef.current, true);
       }
     }
-    if (source === "spotify" && spotifyRef.current && spotifyReadyRef.current) {
-      try {
-        const controller = spotifyRef.current;
-        const sameTrack = spotifyLoadedRef.current === song.id || spotifyLoadedRef.current === `${song.id}:reload`;
+    if (source === "spotify") {
+      const promoted = promoteSpotifyWarm(song.id);
+      if (promoted) {
         spotifyHoldRef.current = true;
-        if (sameTrack) {
-          spotifyLoadedRef.current = `${song.id}:reload`;
-          controller.loadUri(`https://open.spotify.com/track/${song.id}`);
-        } else {
-          spotifyLoadedRef.current = song.id;
-          controller.loadUri(spotifyUri(song.id));
-        }
         window.setTimeout(() => {
           if (progressGenRef.current !== gen) return;
           spotifyHoldRef.current = false;
-        }, 500);
+        }, 400);
         if (wantPlayRef.current) playSpotify(true);
-      } catch {
-        /* ignore */
+      } else if (spotifyRef.current && spotifyReadyRef.current) {
+        try {
+          const controller = spotifyRef.current;
+          const sameTrack = spotifyLoadedRef.current === song.id || spotifyLoadedRef.current === `${song.id}:reload`;
+          spotifyHoldRef.current = true;
+          if (sameTrack) {
+            spotifyLoadedRef.current = `${song.id}:reload`;
+            controller.loadUri(`https://open.spotify.com/track/${song.id}`);
+          } else {
+            spotifyLoadedRef.current = song.id;
+            controller.loadUri(spotifyUri(song.id));
+          }
+          window.setTimeout(() => {
+            if (progressGenRef.current !== gen) return;
+            spotifyHoldRef.current = false;
+          }, 500);
+          if (wantPlayRef.current) playSpotify(true);
+        } catch {
+          /* ignore */
+        }
       }
     }
     if (source !== "spotify" && source !== "youtube") {
@@ -691,6 +1081,14 @@ export function Player({
     if (source === "file") {
       let cancelled = false;
       void (async () => {
+        const warm = fileWarmRef.current.get(song.id);
+        if (warm) {
+          fileUrlRef.current = warm.url;
+          audioRef.current.src = warm.url;
+          audioRef.current.load();
+          if (wantPlayRef.current) void audioRef.current.play();
+          return;
+        }
         const hosted = song.url.startsWith("http") ? song.url : "";
         const blob = hosted ? null : await getLocalFile(song.id);
         if (cancelled || !audioRef.current || gen !== progressGenRef.current) return;
@@ -719,6 +1117,22 @@ export function Player({
       window.clearTimeout(switchTimer);
     };
   }, [index, idsKey, playSide]);
+
+  useEffect(() => {
+    if (!playing) return undefined;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (!cancelled) void warmNextTracks();
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [playing, index, playSide, idsKey]);
+
+  useEffect(() => {
+    return () => pruneFileWarms(new Set());
+  }, [idsKey]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -838,10 +1252,12 @@ export function Player({
 
   return (
     <div className="player">
-      <audio ref={audioRef} preload="metadata" />
+      <audio ref={audioRef} preload="auto" />
       <div className="embed-host" aria-hidden="true">
         <div ref={ytSlotRef} className="embed-slot" />
+        <div ref={ytWarmSlotRef} className="embed-slot embed-warm" />
         <div ref={spotifySlotRef} className="embed-slot" />
+        <div ref={spotifyWarmSlotRef} className="embed-slot embed-warm" />
       </div>
       <div className="player-ui">
       <div className="player-now">

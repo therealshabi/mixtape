@@ -6,6 +6,14 @@ type NoteCardProps = {
   maxLength?: number;
 };
 
+function sentencesForDisplay(value: string) {
+  return value
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\.{3,}/g, "…")
+    .replace(/([.!?…])\s+/g, "$1\n");
+}
+
 export function NoteCard({
   value,
   onChange,
@@ -19,7 +27,9 @@ export function NoteCard({
       <div className="note-margin" />
       <div className="note-lines" />
       {readOnly ? (
-        <p className="note-text">{value}</p>
+        <p className="note-text" tabIndex={0} aria-label="Mixtape note">
+          {sentencesForDisplay(value)}
+        </p>
       ) : (
         <textarea
           className="note-text note-input"
