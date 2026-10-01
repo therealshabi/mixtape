@@ -15,9 +15,10 @@ function u32(bytes: Uint8Array, i: number) {
 function asBlob(bytes: Uint8Array): Blob | null {
   const jpeg = bytes[0] === 0xff && bytes[1] === 0xd8;
   const png = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
-  if (jpeg) return new Blob([bytes], { type: "image/jpeg" });
-  if (png) return new Blob([bytes], { type: "image/png" });
-  return null;
+  if (!jpeg && !png) return null;
+  const copy = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(copy).set(bytes);
+  return new Blob([copy], { type: jpeg ? "image/jpeg" : "image/png" });
 }
 
 function findImage(data: Uint8Array): Blob | null {
