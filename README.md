@@ -2,6 +2,17 @@
 
 A cassette-style mixtape you can send to someone. Same flow as the original [Replit app](https://mixtape-for-you.replit.app/) — pick a tape color, add stickers, paste YouTube or Spotify links (or a local audio file), write a note — with **Side A and Side B**, up to **10 songs each**.
 
+Live demo: [sherry-mixtape.netlify.app](https://sherry-mixtape.netlify.app)
+
+<p align="center">
+  <img src="docs/screenshots/home.png" alt="Home: pick a vibe, cassette, and note" width="720">
+</p>
+<p align="center">
+  <img src="docs/screenshots/create.png" alt="Create: add stickers to the cassette case" width="360">
+  &nbsp;
+  <img src="docs/screenshots/listen.png" alt="Listen: opened tape with a handwritten note" width="360">
+</p>
+
 No accounts. No API keys. Anyone can fork this repo and deploy their own copy.
 
 ## Run locally
