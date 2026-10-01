@@ -1,33 +1,48 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { CassettePreview } from "../components/Cassette";
 import { NoteCard } from "../components/NoteCard";
+import { SongList } from "../components/SongList";
 import { StickerArt } from "../components/StickerArt";
 import { StepBar, WizardNav } from "../components/Wizard";
 import { COVERS } from "../data/covers";
-import { PICKABLE_STICKERS, STICKER_CATEGORIES } from "../data/stickers";
+import { defaultStickerCategory, PICKABLE_STICKERS, STICKER_CATEGORIES } from "../data/stickers";
+import { findTheme, isThemeId } from "../data/themes";
+import { ensureHostedSongs, importLocalSong, resolveLink } from "../lib/media";
+import { compressPhoto } from "../lib/photo";
 import { encodeMixtape } from "../lib/share";
-import { fetchTrack, isYouTubeUrl, parseYouTubeId } from "../lib/youtube";
+import { useTheme } from "../lib/theme";
 import type { Mixtape, TapeSide } from "../types";
 import { MAX_NOTE, MAX_SONGS_PER_SIDE, MAX_STICKERS } from "../types";
 
-const emptyTape: Mixtape = {
-  coverId: "clover",
-  stickers: [],
-  sideA: [],
-  sideB: [],
-  note: "",
-};
-
 export function CreatePage() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const rawTheme = params.get("theme");
+  const themeId = isThemeId(rawTheme) ? rawTheme : "none";
+  const theme = findTheme(themeId);
+  useTheme(themeId);
+
   const [step, setStep] = useState(1);
-  const [tape, setTape] = useState<Mixtape>(emptyTape);
-  const [category, setCategory] = useState<(typeof STICKER_CATEGORIES)[number]["id"]>("fall");
+  const [tape, setTape] = useState<Mixtape>({
+    coverId: theme.heroCover,
+    stickers: theme.id === "none" ? [] : theme.stickers.map((sticker) => ({ ...sticker })),
+    sideA: [],
+    sideB: [],
+    note: "",
+    themeId,
+    photo: "",
+    photoCaption: "",
+  });
+  const [category, setCategory] = useState<(typeof STICKER_CATEGORIES)[number]["id"]>(
+    defaultStickerCategory(themeId),
+  );
   const [side, setSide] = useState<TapeSide>("A");
   const [link, setLink] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const photoRef = useRef<HTMLInputElement>(null);
 
   const currentSongs = side === "A" ? tape.sideA : tape.sideB;
   const totalSongs = tape.sideA.length + tape.sideB.length;
@@ -42,17 +57,8 @@ export function CreatePage() {
     [category],
   );
 
-  async function addSong() {
+  async function addFromLink() {
     const value = link.trim();
-    if (!isYouTubeUrl(value)) {
-      setError("Please paste a valid YouTube link");
-      return;
-    }
-    const incomingId = parseYouTubeId(value);
-    if (incomingId && [...tape.sideA, ...tape.sideB].some((song) => song.id === incomingId)) {
-      setError("This song is already added");
-      return;
-    }
     if (currentSongs.length >= MAX_SONGS_PER_SIDE) {
       setError(`Side ${side} is full — ${MAX_SONGS_PER_SIDE} songs max`);
       return;
@@ -60,7 +66,7 @@ export function CreatePage() {
     setError("");
     setLoading(true);
     try {
-      const song = await fetchTrack(value);
+      const song = await resolveLink(value);
       if ([...tape.sideA, ...tape.sideB].some((existing) => existing.id === song.id)) {
         setError("This song is already added");
         return;
@@ -72,9 +78,41 @@ export function CreatePage() {
       );
       setLink("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't load that track — check the link");
+      setError(err instanceof Error ? err.message : "Couldn't load that track");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function addFromFile(file: File | undefined) {
+    if (!file) return;
+    if (currentSongs.length >= MAX_SONGS_PER_SIDE) {
+      setError(`Side ${side} is full — ${MAX_SONGS_PER_SIDE} songs max`);
+      return;
+    }
+    setError("");
+    setLoading(true);
+    try {
+      const song = await importLocalSong(file);
+      setTape((current) =>
+        side === "A"
+          ? { ...current, sideA: [...current.sideA, song] }
+          : { ...current, sideB: [...current.sideB, song] },
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't add that file");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function addPhoto(file: File | undefined) {
+    if (!file) return;
+    try {
+      const photo = await compressPhoto(file);
+      setTape((current) => ({ ...current, photo }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't add that photo");
     }
   }
 
@@ -88,9 +126,26 @@ export function CreatePage() {
     });
   }
 
-  function finish() {
-    const id = encodeMixtape(tape);
-    navigate(`/share/${id}`);
+  async function finish() {
+    setLoading(true);
+    setError("");
+    try {
+      const sideA = await ensureHostedSongs(tape.sideA);
+      const sideB = await ensureHostedSongs(tape.sideB);
+      const stuck = [...sideA, ...sideB].filter((song) => song.source === "file" && !song.url.startsWith("http"));
+      if (stuck.length) {
+        throw new Error(
+          `Couldn't upload ${stuck.map((song) => song.title).join(", ")} for sharing. Try a smaller audio file, then Finish again.`,
+        );
+      }
+      const ready = { ...tape, sideA, sideB };
+      setTape(ready);
+      navigate(`/share/${encodeMixtape(ready)}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't pack this mixtape");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -197,31 +252,23 @@ export function CreatePage() {
             {currentSongs.length === 0 ? (
               <p className="empty-songs">No songs yet – up to {MAX_SONGS_PER_SIDE} on this side</p>
             ) : (
-              currentSongs.map((song, index) => (
-                <div key={song.id} className="song-row">
-                  {song.artworkUrl && <img src={song.artworkUrl} alt="" />}
-                  <div>
-                    <p>{song.title}</p>
-                    {song.artist && <small>{song.artist}</small>}
-                  </div>
-                  <button
-                    type="button"
-                    aria-label="Remove song"
-                    onClick={() =>
-                      setTape((current) =>
-                        side === "A"
-                          ? { ...current, sideA: current.sideA.filter((_, i) => i !== index) }
-                          : { ...current, sideB: current.sideB.filter((_, i) => i !== index) },
-                      )
-                    }
-                  >
-                    ×
-                  </button>
-                </div>
-              ))
+              <SongList
+                songs={currentSongs}
+                onReorder={(songs) =>
+                  setTape((current) => (side === "A" ? { ...current, sideA: songs } : { ...current, sideB: songs }))
+                }
+                onRemove={(index) =>
+                  setTape((current) =>
+                    side === "A"
+                      ? { ...current, sideA: current.sideA.filter((_, i) => i !== index) }
+                      : { ...current, sideB: current.sideB.filter((_, i) => i !== index) },
+                  )
+                }
+              />
             )}
             <p className="song-count">
               {currentSongs.length}/{MAX_SONGS_PER_SIDE} songs on side {side}
+              {currentSongs.length > 1 ? " · drag to reorder" : ""}
             </p>
           </div>
           <div className="song-add">
@@ -234,22 +281,42 @@ export function CreatePage() {
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
-                  void addSong();
+                  void addFromLink();
                 }
               }}
-              placeholder="Paste a YouTube link…"
+              placeholder="Paste a YouTube or Spotify link…"
               inputMode="url"
               disabled={loading || currentSongs.length >= MAX_SONGS_PER_SIDE}
             />
             <button
               type="button"
               className="btn btn-dark add-btn"
-              onClick={() => void addSong()}
+              onClick={() => void addFromLink()}
               disabled={loading || !link.trim() || currentSongs.length >= MAX_SONGS_PER_SIDE}
             >
               {loading ? "…" : "Add"}
             </button>
           </div>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="audio/*"
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              void addFromFile(file);
+            }}
+          />
+          <button
+            type="button"
+            className="btn btn-light file-btn"
+            onClick={() => fileRef.current?.click()}
+            disabled={loading || currentSongs.length >= MAX_SONGS_PER_SIDE}
+          >
+            Add from this device
+          </button>
+          <p className="hint">Device files are uploaded with the share link (about 8 MB max).</p>
           {error && <p className="form-error">{error}</p>}
         </div>
       )}
@@ -259,14 +326,40 @@ export function CreatePage() {
           <h2>Add a little note</h2>
           <CassettePreview tape={tape} compact />
           <NoteCard value={tape.note} maxLength={MAX_NOTE} onChange={(note) => setTape((current) => ({ ...current, note }))} />
+          <input
+            ref={photoRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              void addPhoto(file);
+            }}
+          />
+          <div className="photo-row">
+            {tape.photo ? (
+              <div className="photo-preview">
+                <img src={tape.photo} alt="Added to mixtape" />
+                <button type="button" className="btn btn-light" onClick={() => setTape((current) => ({ ...current, photo: "" }))}>
+                  Remove photo
+                </button>
+              </div>
+            ) : (
+              <button type="button" className="btn btn-light file-btn" onClick={() => photoRef.current?.click()}>
+                Add one photo
+              </button>
+            )}
+          </div>
+          {error && <p className="form-error">{error}</p>}
         </div>
       )}
 
       <WizardNav
         onBack={() => (step === 1 ? navigate("/") : setStep((n) => n - 1))}
-        onNext={() => (step === 4 ? finish() : setStep((n) => n + 1))}
-        nextLabel={step === 4 ? "Finish" : "Next"}
-        nextDisabled={!canNext}
+        onNext={() => (step === 4 ? void finish() : setStep((n) => n + 1))}
+        nextLabel={step === 4 ? (loading ? "Packing…" : "Finish") : "Next"}
+        nextDisabled={!canNext || loading}
       />
     </section>
   );

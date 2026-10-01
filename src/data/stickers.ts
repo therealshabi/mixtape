@@ -1,4 +1,12 @@
-export type StickerCategory = "fall" | "stars" | "flowers" | "ribbons";
+export type StickerCategory =
+  | "birthday"
+  | "anniversary"
+  | "travel"
+  | "good-day"
+  | "fall"
+  | "stars"
+  | "flowers"
+  | "ribbons";
 
 export type StickerDef = {
   id: string;
@@ -8,13 +16,39 @@ export type StickerDef = {
 };
 
 export const STICKER_CATEGORIES: { id: StickerCategory; label: string }[] = [
+  { id: "birthday", label: "Birthday" },
+  { id: "anniversary", label: "Anniversary" },
+  { id: "travel", label: "Travel" },
+  { id: "good-day", label: "Good day" },
   { id: "fall", label: "Fall" },
   { id: "stars", label: "Stars" },
   { id: "flowers", label: "Flowers" },
   { id: "ribbons", label: "Ribbons" },
 ];
 
+export function defaultStickerCategory(themeId: string | null | undefined): StickerCategory {
+  return STICKER_CATEGORIES.some((item) => item.id === themeId)
+    ? (themeId as StickerCategory)
+    : "fall";
+}
+
 export const STICKERS: StickerDef[] = [
+  { id: "birthday-cake", label: "Cake", category: "birthday", image: "/assets/stickers/birthday-cake.png" },
+  { id: "birthday-balloons", label: "Balloons", category: "birthday", image: "/assets/stickers/birthday-balloons.png" },
+  { id: "birthday-gift", label: "Gift", category: "birthday", image: "/assets/stickers/birthday-gift.png" },
+  { id: "birthday-hat", label: "Party hat", category: "birthday", image: "/assets/stickers/birthday-hat.png" },
+  { id: "anniversary-heart", label: "Felt heart", category: "anniversary", image: "/assets/stickers/anniversary-heart.png" },
+  { id: "anniversary-rings", label: "Rings", category: "anniversary", image: "/assets/stickers/anniversary-rings.png" },
+  { id: "anniversary-champagne", label: "Champagne", category: "anniversary", image: "/assets/stickers/anniversary-champagne.png" },
+  { id: "anniversary-locket", label: "Locket", category: "anniversary", image: "/assets/stickers/anniversary-locket.png" },
+  { id: "travel-camera", label: "Camera", category: "travel", image: "/assets/stickers/travel-camera.png" },
+  { id: "travel-suitcase", label: "Suitcase", category: "travel", image: "/assets/stickers/travel-suitcase.png" },
+  { id: "travel-plane", label: "Plane", category: "travel", image: "/assets/stickers/travel-plane.png" },
+  { id: "travel-compass", label: "Compass", category: "travel", image: "/assets/stickers/travel-compass.png" },
+  { id: "goodday-sun", label: "Sunshine", category: "good-day", image: "/assets/stickers/goodday-sun.png" },
+  { id: "goodday-daisy", label: "Daisy", category: "good-day", image: "/assets/stickers/goodday-daisy.png" },
+  { id: "goodday-butterfly", label: "Butterfly", category: "good-day", image: "/assets/stickers/goodday-butterfly.png" },
+  { id: "goodday-lemonade", label: "Lemonade", category: "good-day", image: "/assets/stickers/goodday-lemonade.png" },
   { id: "fall-poststamp", label: "Poststamp", category: "fall", image: "/assets/stickers/fall-poststamp.png" },
   { id: "fall-citrus", label: "Citrus", category: "fall", image: "/assets/stickers/fall-citrus.png" },
   { id: "fall-coffee", label: "Coffee", category: "fall", image: "/assets/stickers/fall-coffee.png" },

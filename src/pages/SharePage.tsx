@@ -4,6 +4,7 @@ import { CassetteCase, CassetteTape } from "../components/Cassette";
 import { NoteCard } from "../components/NoteCard";
 import { Player } from "../components/Player";
 import { allSongs, decodeMixtape } from "../lib/share";
+import { useTheme } from "../lib/theme";
 
 function MissingTape() {
   return (
@@ -17,12 +18,47 @@ function MissingTape() {
   );
 }
 
+function TapeStage({
+  tape,
+  ejected,
+  spinning,
+}: {
+  tape: NonNullable<ReturnType<typeof decodeMixtape>>;
+  ejected?: boolean;
+  spinning?: boolean;
+}) {
+  return (
+    <div className="share-stage">
+      {tape.note && <NoteCard value={tape.note} readOnly className="share-note" />}
+      <div className={`share-stack ${ejected === undefined ? "stacked" : ""}`}>
+        {ejected === undefined ? (
+          <CassetteTape coverId={tape.coverId} spinning={spinning} />
+        ) : (
+          <div className={`tape-slide ${ejected ? "out" : ""}`}>
+            <CassetteTape coverId={tape.coverId} spinning={spinning} />
+          </div>
+        )}
+        <CassetteCase
+          coverId={tape.coverId}
+          stickers={tape.stickers}
+          sideA={tape.sideA}
+          sideB={tape.sideB}
+          photo={tape.photo}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function SharePage() {
   const { id = "" } = useParams();
   const tape = useMemo(() => decodeMixtape(id), [id]);
   const songs = useMemo(() => (tape ? allSongs(tape) : []), [tape]);
   const [copied, setCopied] = useState(false);
+  const [ejected, setEjected] = useState(false);
+  const [playing, setPlaying] = useState(false);
   const shareUrl = typeof window !== "undefined" ? `${window.location.origin}/m/${id}` : `/m/${id}`;
+  useTheme(tape?.themeId);
 
   if (!tape) return <MissingTape />;
 
@@ -36,22 +72,16 @@ export function SharePage() {
     }
   }
 
+  const hasUnhosted = songs.some((song) => song.source === "file" && !song.url.startsWith("http"));
+
   return (
     <section className="share">
       <h2>Share Your Mixtape</h2>
-      <div className="share-stage">
-        {tape.note && <NoteCard value={tape.note} readOnly className="share-note" />}
-        <div className="share-stack stacked">
-          <CassetteTape coverId={tape.coverId} />
-          <CassetteCase
-            coverId={tape.coverId}
-            stickers={tape.stickers}
-            sideA={tape.sideA}
-            sideB={tape.sideB}
-          />
-        </div>
-      </div>
-      <Player songs={songs} />
+      <TapeStage tape={tape} ejected={ejected} spinning={ejected && playing} />
+      <Player songs={songs} onFirstPlay={() => setEjected(true)} onPlayingChange={setPlaying} />
+      {hasUnhosted && (
+        <p className="hint">A device track on this tape didn&apos;t upload, so it may only play on the original phone or laptop.</p>
+      )}
       <div className="share-box">
         <p>Share this mixtape:</p>
         <div className="share-row">
@@ -76,27 +106,20 @@ export function ListenPage() {
   const tape = useMemo(() => decodeMixtape(id), [id]);
   const songs = useMemo(() => (tape ? allSongs(tape) : []), [tape]);
   const [ejected, setEjected] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  useTheme(tape?.themeId);
 
   if (!tape) return <MissingTape />;
 
   return (
     <section className="share">
       <h2>A Mixtape For You</h2>
-      <div className="share-stage">
-        {tape.note && <NoteCard value={tape.note} readOnly className="share-note" />}
-        <div className="share-stack">
-          <div className={`tape-slide ${ejected ? "out" : ""}`}>
-            <CassetteTape coverId={tape.coverId} />
-          </div>
-          <CassetteCase
-            coverId={tape.coverId}
-            stickers={tape.stickers}
-            sideA={tape.sideA}
-            sideB={tape.sideB}
-          />
-        </div>
-      </div>
-      <Player songs={songs} onFirstPlay={() => setEjected(true)} />
+      <TapeStage tape={tape} ejected={ejected} spinning={ejected && playing} />
+      <Player
+        songs={songs}
+        onFirstPlay={() => setEjected(true)}
+        onPlayingChange={setPlaying}
+      />
     </section>
   );
 }

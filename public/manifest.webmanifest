@@ -1,0 +1,17 @@
+{
+  "name": "Mixtape for you",
+  "short_name": "Mixtape",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#b3d4dd",
+  "theme_color": "#090909",
+  "description": "A cassette-style mixtape you can send to someone.",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

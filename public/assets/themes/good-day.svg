@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240">
+  <defs>
+    <pattern id="gingham" width="48" height="48" patternUnits="userSpaceOnUse">
+      <rect width="48" height="48" fill="#d7e6b5"/>
+      <rect width="24" height="24" fill="#c9db9f"/>
+      <rect x="24" y="24" width="24" height="24" fill="#c9db9f"/>
+    </pattern>
+  </defs>
+  <rect width="240" height="240" fill="url(#gingham)"/>
+  <g>
+    <g transform="translate(52 50)">
+      <circle cx="0" cy="-12" r="7" fill="#f7f2e4"/>
+      <circle cx="11" cy="-4" r="7" fill="#f7f2e4"/>
+      <circle cx="8" cy="9" r="7" fill="#f7f2e4"/>
+      <circle cx="-8" cy="9" r="7" fill="#f7f2e4"/>
+      <circle cx="-11" cy="-4" r="7" fill="#f7f2e4"/>
+      <circle cx="0" cy="0" r="5.5" fill="#e8c15a"/>
+    </g>
+    <g transform="translate(178 92)">
+      <circle cx="0" cy="-10" r="6" fill="#f7f2e4"/>
+      <circle cx="9" cy="-3" r="6" fill="#f7f2e4"/>
+      <circle cx="6" cy="8" r="6" fill="#f7f2e4"/>
+      <circle cx="-6" cy="8" r="6" fill="#f7f2e4"/>
+      <circle cx="-9" cy="-3" r="6" fill="#f7f2e4"/>
+      <circle cx="0" cy="0" r="4.6" fill="#e8c15a"/>
+    </g>
+    <g transform="translate(118 176)">
+      <circle cx="0" cy="-11" r="6.5" fill="#f7f2e4"/>
+      <circle cx="10" cy="-3" r="6.5" fill="#f7f2e4"/>
+      <circle cx="7" cy="9" r="6.5" fill="#f7f2e4"/>
+      <circle cx="-7" cy="9" r="6.5" fill="#f7f2e4"/>
+      <circle cx="-10" cy="-3" r="6.5" fill="#f7f2e4"/>
+      <circle cx="0" cy="0" r="5" fill="#e8c15a"/>
+    </g>
+  </g>
+  <g fill="#f2d15a">
+    <circle cx="214" cy="30" r="9"/>
+    <g stroke="#f2d15a" stroke-width="2" stroke-linecap="round">
+      <path d="M214 12v5M214 43v5M196 30h5M227 30h5M201 17l4 4M223 39l4 4M201 43l4-4M223 17l4-4"/>
+    </g>
+    <circle cx="30" cy="132" r="7"/>
+    <g stroke="#f2d15a" stroke-width="1.8" stroke-linecap="round">
+      <path d="M30 118v4M30 142v4M16 132h4M40 132h4"/>
+    </g>
+  </g>
+</svg>
