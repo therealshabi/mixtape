@@ -1,3 +1,5 @@
 /api/host-audio  /.netlify/functions/host-audio  200!
 /api/file/:id    /.netlify/functions/file?id=:id  200!
+/api/tape        /.netlify/functions/tape  200!
+/api/tape/:id    /.netlify/functions/tape?id=:id  200!
 /*    /index.html   200

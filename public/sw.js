@@ -1,4 +1,4 @@
-const CACHE = "mixtape-shell-v2";
+const CACHE = "mixtape-shell-v3";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -33,6 +33,7 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/.netlify/functions/")) return;
 
   event.respondWith(
     caches.match(request).then((cached) => {

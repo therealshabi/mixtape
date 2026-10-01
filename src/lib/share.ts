@@ -106,15 +106,42 @@ export function listenUrl(origin: string, payload: string): string {
 
 const TAPE_CACHE = "mixtape-id:";
 
+function tapeUrls(id?: string) {
+  if (id) {
+    const encoded = encodeURIComponent(id);
+    return [`/api/tape/${encoded}`, `/.netlify/functions/tape?id=${encoded}`];
+  }
+  return ["/api/tape", "/.netlify/functions/tape"];
+}
+
+async function tapeJson<T extends Record<string, unknown>>(urls: string[], init?: RequestInit): Promise<T> {
+  let lastError = "Couldn't reach the mixtape shelf";
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, init);
+      const type = res.headers.get("content-type") || "";
+      if (!type.includes("json")) continue;
+      const body = (await res.json()) as T & { error?: string };
+      if (!res.ok) {
+        lastError = body.error || lastError;
+        continue;
+      }
+      return body;
+    } catch {
+      /* try next */
+    }
+  }
+  throw new Error(lastError);
+}
+
 export async function publishTape(payload: string): Promise<string> {
-  const res = await fetch("/api/tape", {
+  const body = await tapeJson<{ id?: string }>(tapeUrls(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ payload }),
   });
-  const body = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
-  if (!res.ok || !body.id || !isTapeId(body.id)) {
-    throw new Error(body.error || "Couldn't save this mixtape link");
+  if (!body.id || !isTapeId(body.id)) {
+    throw new Error("Couldn't save this mixtape link");
   }
   try {
     sessionStorage.setItem(TAPE_CACHE + body.id, payload);
@@ -131,11 +158,8 @@ export async function fetchTapePayload(id: string): Promise<string> {
   } catch {
     /* ignore */
   }
-  const res = await fetch(`/api/tape/${encodeURIComponent(id)}`);
-  const body = (await res.json().catch(() => ({}))) as { payload?: string; error?: string };
-  if (!res.ok || !body.payload) {
-    throw new Error(body.error || "Mixtape not found");
-  }
+  const body = await tapeJson<{ payload?: string }>(tapeUrls(id));
+  if (!body.payload) throw new Error("Mixtape not found");
   try {
     sessionStorage.setItem(TAPE_CACHE + id, body.payload);
   } catch {
