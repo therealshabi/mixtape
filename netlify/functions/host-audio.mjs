@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { getStore } from "@netlify/blobs";
+import { connectLambda, getStore } from "@netlify/blobs";
 
 export async function handler(event) {
   const headers = {
@@ -10,6 +10,7 @@ export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers, body: "" };
   if (event.httpMethod !== "POST") return { statusCode: 405, headers, body: JSON.stringify({ error: "POST only" }) };
   try {
+    connectLambda(event);
     const raw = event.isBase64Encoded ? Buffer.from(event.body || "", "base64").toString("utf8") : event.body || "";
     const payload = typeof raw === "string" ? JSON.parse(raw) : raw;
     if (!payload?.data) throw new Error("Missing file data");
