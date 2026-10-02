@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { CassettePreview } from "../components/Cassette";
 import { NoteCard } from "../components/NoteCard";
@@ -24,6 +24,9 @@ export function CreatePage() {
   useTheme(themeId);
 
   const [step, setStep] = useState(1);
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [step]);
   const [tape, setTape] = useState<Mixtape>({
     coverId: theme.heroCover,
     stickers: theme.id === "none" ? [] : theme.stickers.map((sticker) => ({ ...sticker })),

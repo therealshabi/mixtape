@@ -79,6 +79,7 @@ img { max-width: 100%; }
   background-color: var(--bg);
   background-size: 240px 240px;
   background-attachment: fixed;
+  overflow-x: clip;
 }
 
 html[data-theme="birthday"],
@@ -1145,6 +1146,7 @@ h2 {
 
 .player {
   width: 100%;
+  box-sizing: border-box;
   position: relative;
   isolation: isolate;
   overflow: hidden;
@@ -1501,10 +1503,19 @@ h2 {
 .cover-brown-five { background: #f3ead8 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cpath fill='%236b3e26' d='M20 16c3-4 8-1 6 4-1 2-4 4-6 6-2-2-5-4-6-6-2-5 3-8 6-4z'/%3E%3C/svg%3E"); }
 .cover-green-six { background-color: #c5d2bd; background-image: repeating-linear-gradient(90deg, #5d7a4a 0 8px, transparent 8px 16px), repeating-linear-gradient(#5d7a4a33 0 8px, transparent 8px 16px); }
 
+@media (hover: none) {
+  .sticker-tools { opacity: 1; pointer-events: auto; }
+}
+
 @media (max-width: 640px) {
-  .hero { height: 300px; }
+  main { padding-left: 16px; padding-right: 16px; }
+  .hero { height: 240px; }
+  .hero-note { left: 50%; width: min(317px, 90%); transform: translateX(-50%) rotate(-4deg); }
+  .hero-note.note-card { max-width: none; }
   .hero-tape, .hero-case { transform: rotate(-4deg) scale(0.62); }
-  .hero-case { transform: rotate(6deg) scale(0.62); }
+  .hero-case { right: 0; transform: rotate(6deg) scale(0.62); }
+  .hero-tape .tape-photo { width: 346px; }
+  .hero-case .case-photo { width: 358px; }
   .tape-photo, .case-photo { width: min(358px, 100%); }
   .tape-photo { height: auto; aspect-ratio: 346 / 223; }
   .case-photo { height: auto; aspect-ratio: 358 / 230; }
