@@ -3,17 +3,6 @@ import { randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { defineConfig, type Plugin } from "vite";
 
-async function uploadCatbox(filename: string, type: string, data: string) {
-  const bytes = Buffer.from(data, "base64");
-  const form = new FormData();
-  form.append("reqtype", "fileupload");
-  form.append("fileToUpload", new Blob([bytes], { type: type || "audio/mpeg" }), filename || "track.mp3");
-  const res = await fetch("https://catbox.moe/user/api.php", { method: "POST", body: form });
-  const url = (await res.text()).trim();
-  if (!url.startsWith("http")) throw new Error(url || "Upload failed");
-  return url;
-}
-
 function readBody(req: IncomingMessage): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -23,10 +12,47 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
   });
 }
 
+function serveFile(req: IncomingMessage, res: ServerResponse, file: { bytes: Buffer; type: string }) {
+  const total = file.bytes.length;
+  res.setHeader("Content-Type", file.type);
+  res.setHeader("Accept-Ranges", "bytes");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || "");
+  if (!range) {
+    res.statusCode = 200;
+    res.setHeader("Content-Length", total);
+    res.end(file.bytes);
+    return;
+  }
+  const start = range[1] ? Number(range[1]) : Math.max(0, total - Number(range[2]));
+  const end = range[1] && range[2] ? Math.min(Number(range[2]), total - 1) : total - 1;
+  if (start >= total || start > end) {
+    res.statusCode = 416;
+    res.setHeader("Content-Range", `bytes */${total}`);
+    res.end();
+    return;
+  }
+  res.statusCode = 206;
+  res.setHeader("Content-Range", `bytes ${start}-${end}/${total}`);
+  res.setHeader("Content-Length", end - start + 1);
+  res.end(file.bytes.subarray(start, end + 1));
+}
+
 function hostAudioPlugin(): Plugin {
+  const files = new Map<string, { bytes: Buffer; type: string }>();
   return {
     name: "host-audio",
     configureServer(server) {
+      server.middlewares.use("/api/file", (req: IncomingMessage, res: ServerResponse) => {
+        const id = (req.url || "").split("?")[0].replace(/^\//, "");
+        const file = files.get(id);
+        if (!file) {
+          res.statusCode = 404;
+          res.end("Not found");
+          return;
+        }
+        serveFile(req, res, file);
+      });
       server.middlewares.use("/api/host-audio", async (req: IncomingMessage, res: ServerResponse) => {
         res.setHeader("Content-Type", "application/json");
         if (req.method === "OPTIONS") {
@@ -46,9 +72,12 @@ function hostAudioPlugin(): Plugin {
             data?: string;
           };
           if (!payload.data) throw new Error("Missing file data");
-          const url = await uploadCatbox(payload.filename || "track.mp3", payload.type || "audio/mpeg", payload.data);
+          const key = randomBytes(8).toString("hex");
+          files.set(key, { bytes: Buffer.from(payload.data, "base64"), type: payload.type || "application/octet-stream" });
+          // Use the request's own host so links also work from a phone on the LAN.
+          const host = req.headers.host || "localhost:5173";
           res.statusCode = 200;
-          res.end(JSON.stringify({ url }));
+          res.end(JSON.stringify({ url: `http://${host}/api/file/${key}` }));
         } catch (err) {
           res.statusCode = 502;
           res.end(JSON.stringify({ error: err instanceof Error ? err.message : "Upload failed" }));
