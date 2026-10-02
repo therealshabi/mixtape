@@ -1,6 +1,7 @@
 import type { Song, SongSource } from "../types";
 import { compressArtwork, fallbackArtworkDataUrl, readAudioTags, titleFromFilename } from "./artwork";
 import { hostAudioFile } from "./hostAudio";
+import { randomId } from "./id";
 import { getLocalFile, saveLocalFile } from "./idb";
 import { fetchTrack, isYouTubeUrl, parseYouTubeId, thumbnailUrl, watchUrl } from "./youtube";
 
@@ -97,7 +98,7 @@ export async function importLocalSong(file: File): Promise<Song> {
   if (!file.type.startsWith("audio/") && !/\.(mp3|m4a|aac|wav|ogg|flac|aiff)$/i.test(file.name)) {
     throw new Error("Please pick an audio file");
   }
-  const id = `file-${crypto.randomUUID()}`;
+  const id = `file-${randomId()}`;
   await saveLocalFile(id, file);
   const fromName = titleFromFilename(file.name);
   const tags = await readAudioTags(file, file.name);

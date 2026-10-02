@@ -8,6 +8,7 @@ import { StepBar, WizardNav } from "../components/Wizard";
 import { COVERS } from "../data/covers";
 import { defaultStickerCategory, PICKABLE_STICKERS, STICKER_CATEGORIES, type StickerDef } from "../data/stickers";
 import { findTheme, isThemeId } from "../data/themes";
+import { randomId } from "../lib/id";
 import { ensureHostedSongs, importLocalSong, resolveLink } from "../lib/media";
 import { compressPhoto, compressSticker, hostPhotoForShare } from "../lib/photo";
 import { encodeMixtape, publishTape } from "../lib/share";
@@ -151,7 +152,7 @@ export function CreatePage() {
     for (const file of files) {
       try {
         const image = await compressSticker(file);
-        added.push({ id: `custom-${crypto.randomUUID()}`, label: "Custom", category: "custom", image });
+        added.push({ id: `custom-${randomId()}`, label: "Custom", category: "custom", image });
       } catch {
         /* skip unreadable files */
       }
