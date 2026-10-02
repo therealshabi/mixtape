@@ -1,6 +1,6 @@
 import type { Song, SongSource } from "../types";
 import { compressArtwork, fallbackArtworkDataUrl, readAudioTags, titleFromFilename } from "./artwork";
-import { hostAudioFile } from "./hostAudio";
+import { hostAudioFile, MAX_SHARE_BYTES } from "./hostAudio";
 import { randomId } from "./id";
 import { getLocalFile, saveLocalFile } from "./idb";
 import { fetchTrack, isYouTubeUrl, parseYouTubeId, thumbnailUrl, watchUrl } from "./youtube";
@@ -98,6 +98,10 @@ export async function importLocalSong(file: File): Promise<Song> {
   if (!file.type.startsWith("audio/") && !/\.(mp3|m4a|aac|wav|ogg|flac|aiff)$/i.test(file.name)) {
     throw new Error("Please pick an audio file");
   }
+  if (file.size > MAX_SHARE_BYTES) {
+    const mb = (file.size / 1_000_000).toFixed(1);
+    throw new Error(`That song is ${mb} MB. Device songs need to be under 4 MB to share — try a lower-quality MP3 (128 kbps).`);
+  }
   const id = `file-${randomId()}`;
   await saveLocalFile(id, file);
   const fromName = titleFromFilename(file.name);
@@ -155,15 +159,16 @@ export async function ensureHostedSongs(songs: Song[]): Promise<Song[]> {
       next.push(song);
       continue;
     }
+    const title = song.title || "a device song";
     const blob = await getLocalFile(song.id);
     if (!blob) {
-      next.push(song);
-      continue;
+      throw new Error(`${title} isn't saved on this device anymore. Remove it, add it again, then Finish.`);
     }
     try {
       next.push({ ...song, url: await hostAudioFile(blob, `${song.title || "track"}.mp3`) });
-    } catch {
-      next.push(song);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : "Upload failed";
+      throw new Error(`Couldn't upload ${title} for sharing: ${reason}`);
     }
   }
   return next;

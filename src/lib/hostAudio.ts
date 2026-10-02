@@ -1,4 +1,4 @@
-const MAX_SHARE_BYTES = 4_200_000;
+export const MAX_SHARE_BYTES = 4_200_000;
 
 function fileToBase64(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -15,17 +15,24 @@ function fileToBase64(file: Blob): Promise<string> {
 
 export async function hostShareFile(file: Blob, filename: string, type = file.type): Promise<string> {
   if (file.size > MAX_SHARE_BYTES) {
-    throw new Error("Keep device files under 4 MB so they can travel with the share link");
+    const mb = (file.size / 1_000_000).toFixed(1);
+    throw new Error(`it's ${mb} MB, and device files need to be under 4 MB to share`);
   }
   const data = await fileToBase64(file);
-  const res = await fetch("/api/host-audio", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ filename, type: type || "application/octet-stream", data }),
-  });
+  let res: Response;
+  try {
+    res = await fetch("/api/host-audio", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename, type: type || "application/octet-stream", data }),
+    });
+  } catch {
+    throw new Error("couldn't reach the upload server — check your connection");
+  }
   const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
   if (!res.ok || !body.url?.startsWith("http")) {
-    throw new Error(body.error || "Couldn't upload that file for sharing");
+    if (res.status === 413) throw new Error("the file is too large for the upload server");
+    throw new Error(body.error || `upload server returned ${res.status}`);
   }
   return body.url;
 }

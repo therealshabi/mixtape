@@ -42,7 +42,11 @@ export async function hostPhotoForShare(photo: string): Promise<string> {
   if (!photo || photo.startsWith("http")) return photo;
   if (!photo.startsWith("data:")) return photo;
   const blob = await (await fetch(photo)).blob();
-  return hostShareFile(blob, "polaroid.jpg", blob.type || "image/jpeg");
+  try {
+    return await hostShareFile(blob, "polaroid.jpg", blob.type || "image/jpeg");
+  } catch (err) {
+    throw new Error(`Couldn't upload the photo: ${err instanceof Error ? err.message : "upload failed"}`);
+  }
 }
 
 const STICKER_EDGE = 180;
