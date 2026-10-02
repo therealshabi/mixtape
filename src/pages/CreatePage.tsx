@@ -412,7 +412,7 @@ export function CreatePage() {
             onClick={() => fileRef.current?.click()}
             disabled={loading || currentSongs.length >= MAX_SONGS_PER_SIDE}
           >
-            {shrinkProgress === null ? "Add from this device" : `Making it smaller… ${Math.round(shrinkProgress * 100)}%`}
+            {shrinkProgress === null ? "Add from this device" : `Compressing… ${Math.round(shrinkProgress * 100)}%`}
           </button>
           <p className="hint">Device songs travel with the share link. Big files are shrunk to under 4 MB automatically.</p>
           {error && <p className="form-error">{error}</p>}
