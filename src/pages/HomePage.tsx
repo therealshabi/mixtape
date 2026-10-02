@@ -53,5 +53,7 @@ function heroNote(theme: ThemeDef) {
   if (theme.id === "anniversary") return "Another year, same song. Almost.";
   if (theme.id === "travel") return "For the road, and whoever's in the passenger seat.";
   if (theme.id === "good-day") return "Press play. It's a good day for it.";
+  if (theme.id === "office") return "For the desk, the tabs, and the 4pm song.";
+  if (theme.id === "commute") return "For the ride in, and the ride back.";
   return "I made this for you! Enjoy creating <3";
 }

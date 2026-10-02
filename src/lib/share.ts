@@ -1,3 +1,4 @@
+import { isThemeId } from "../data/themes";
 import type { Mixtape, Song, SongSource, ThemeId } from "../types";
 import { fallbackArtworkDataUrl } from "./artwork";
 import { spotifyUrl } from "./media";
@@ -6,7 +7,7 @@ import { parseYouTubeId, thumbnailUrl, watchUrl } from "./youtube";
 type CompactSong = [string, string, string, string?, string?, string?];
 type Compact = {
   c: string;
-  s: [string, number][];
+  s: [string, number, string?][];
   a: CompactSong[];
   b: CompactSong[];
   n: string;
@@ -76,7 +77,9 @@ function fromBase64Url(value: string): Uint8Array {
 export function encodeMixtape(tape: Mixtape): string {
   const compact: Compact = {
     c: tape.coverId,
-    s: tape.stickers.map((sticker) => [sticker.id, sticker.rotation]),
+    s: tape.stickers.map((sticker) =>
+      sticker.image ? [sticker.id, sticker.rotation, sticker.image] : [sticker.id, sticker.rotation],
+    ),
     a: packSongs(tape.sideA),
     b: packSongs(tape.sideB),
     n: tape.note,
@@ -176,11 +179,15 @@ export function decodeMixtape(payload: string): Mixtape | null {
     const themeId = (compact.t as ThemeId | undefined) || "none";
     return {
       coverId: compact.c,
-      stickers: (compact.s || []).map(([id, rotation]) => ({ id, rotation: rotation || 0 })),
+      stickers: (compact.s || []).map(([id, rotation, image]) => ({
+        id,
+        rotation: rotation || 0,
+        image: image || undefined,
+      })),
       sideA: unpackSongs(compact.a || []),
       sideB: unpackSongs(compact.b || []),
       note: compact.n || "",
-      themeId: ["none", "birthday", "anniversary", "travel", "good-day"].includes(themeId) ? themeId : "none",
+      themeId: isThemeId(themeId) ? themeId : "none",
       photo: compact.p || "",
       photoCaption: compact.pc || "",
     };

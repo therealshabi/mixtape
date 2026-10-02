@@ -6,10 +6,10 @@ import { SongList } from "../components/SongList";
 import { StickerArt } from "../components/StickerArt";
 import { StepBar, WizardNav } from "../components/Wizard";
 import { COVERS } from "../data/covers";
-import { defaultStickerCategory, PICKABLE_STICKERS, STICKER_CATEGORIES } from "../data/stickers";
+import { defaultStickerCategory, PICKABLE_STICKERS, STICKER_CATEGORIES, type StickerDef } from "../data/stickers";
 import { findTheme, isThemeId } from "../data/themes";
 import { ensureHostedSongs, importLocalSong, resolveLink } from "../lib/media";
-import { compressPhoto, hostPhotoForShare } from "../lib/photo";
+import { compressPhoto, compressSticker, hostPhotoForShare } from "../lib/photo";
 import { encodeMixtape, publishTape } from "../lib/share";
 import { useTheme } from "../lib/theme";
 import type { Mixtape, TapeSide } from "../types";
@@ -43,6 +43,8 @@ export function CreatePage() {
   const [loading, setLoading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const photoRef = useRef<HTMLInputElement>(null);
+  const stickerFileRef = useRef<HTMLInputElement>(null);
+  const [customStickers, setCustomStickers] = useState<StickerDef[]>([]);
 
   const currentSongs = side === "A" ? tape.sideA : tape.sideB;
   const totalSongs = tape.sideA.length + tape.sideB.length;
@@ -116,14 +118,63 @@ export function CreatePage() {
     }
   }
 
+  function removeSticker(id: string) {
+    setTape((current) => ({
+      ...current,
+      stickers: current.stickers.filter((sticker) => sticker.id !== id),
+    }));
+    setCustomStickers((list) => list.filter((sticker) => sticker.id !== id));
+    if (error) setError("");
+  }
+
   function toggleSticker(id: string) {
-    setTape((current) => {
-      if (current.stickers.some((sticker) => sticker.id === id)) {
-        return { ...current, stickers: current.stickers.filter((sticker) => sticker.id !== id) };
+    if (tape.stickers.some((sticker) => sticker.id === id)) {
+      removeSticker(id);
+      return;
+    }
+    if (tape.stickers.length >= MAX_STICKERS) return;
+    const custom = customStickers.find((sticker) => sticker.id === id);
+    setTape((current) =>
+      current.stickers.length >= MAX_STICKERS
+        ? current
+        : { ...current, stickers: [...current.stickers, { id, rotation: 0, image: custom?.image }] },
+    );
+  }
+
+  async function addCustomStickers(files: File[]) {
+    if (!files.length) return;
+    setError("");
+    const added: StickerDef[] = [];
+    for (const file of files) {
+      try {
+        const image = await compressSticker(file);
+        added.push({ id: `custom-${crypto.randomUUID()}`, label: "Custom", category: "custom", image });
+      } catch {
+        /* skip unreadable files */
       }
-      if (current.stickers.length >= MAX_STICKERS) return current;
-      return { ...current, stickers: [...current.stickers, { id, rotation: 0 }] };
+    }
+    if (!added.length) {
+      setError("Couldn't add those stickers");
+      return;
+    }
+    setCustomStickers((list) => [...list, ...added]);
+    const room = Math.max(0, MAX_STICKERS - tape.stickers.length);
+    setTape((current) => {
+      const slots = MAX_STICKERS - current.stickers.length;
+      if (slots <= 0) return current;
+      return {
+        ...current,
+        stickers: [
+          ...current.stickers,
+          ...added.slice(0, slots).map((sticker) => ({ id: sticker.id, rotation: 0, image: sticker.image })),
+        ],
+      };
     });
+    if (room <= 0) {
+      setError(`You already have ${MAX_STICKERS} stickers — tap one to swap it out`);
+    } else if (added.length > room) {
+      setError(`Placed ${room} on the case — tap one to swap the rest in`);
+    }
   }
 
   async function finish() {
@@ -185,12 +236,7 @@ export function CreatePage() {
           <CassettePreview
             tape={tape}
             editable
-            onRemoveSticker={(id) =>
-              setTape((current) => ({
-                ...current,
-                stickers: current.stickers.filter((sticker) => sticker.id !== id),
-              }))
-            }
+            onRemoveSticker={removeSticker}
             onRotateSticker={(id) =>
               setTape((current) => ({
                 ...current,
@@ -221,6 +267,29 @@ export function CreatePage() {
                 </button>
               ))}
             </div>
+            {customStickers.length > 0 && (
+              <>
+                <p className="sticker-yours-label">Yours</p>
+                <div className="sticker-grid">
+                  {customStickers.map((sticker) => {
+                    const selected = tape.stickers.some((placed) => placed.id === sticker.id);
+                    return (
+                      <button
+                        key={sticker.id}
+                        type="button"
+                        className={selected ? "picked" : ""}
+                        aria-pressed={selected}
+                        aria-label={`${selected ? "Remove" : "Add"} your sticker`}
+                        onClick={() => toggleSticker(sticker.id)}
+                      >
+                        <StickerArt sticker={sticker} />
+                        {selected && <span className="check">✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
             <div className="sticker-grid">
               {stickersInCategory.map((sticker) => {
                 const selected = tape.stickers.some((placed) => placed.id === sticker.id);
@@ -239,6 +308,22 @@ export function CreatePage() {
                 );
               })}
             </div>
+            <input
+              ref={stickerFileRef}
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              onChange={(event) => {
+                const files = event.target.files ? [...event.target.files] : [];
+                event.target.value = "";
+                void addCustomStickers(files);
+              }}
+            />
+            <button type="button" className="btn btn-light file-btn" onClick={() => stickerFileRef.current?.click()}>
+              Add custom sticker(s)
+            </button>
+            {error && <p className="form-error">{error}</p>}
           </div>
         </div>
       )}
@@ -364,7 +449,11 @@ export function CreatePage() {
 
       <WizardNav
         onBack={() => (step === 1 ? navigate("/") : setStep((n) => n - 1))}
-        onNext={() => (step === 4 ? void finish() : setStep((n) => n + 1))}
+        onNext={() => {
+          setError("");
+          if (step === 4) void finish();
+          else setStep((n) => n + 1);
+        }}
         nextLabel={step === 4 ? (loading ? "Packing…" : "Finish") : "Next"}
         nextDisabled={!canNext || loading}
       />

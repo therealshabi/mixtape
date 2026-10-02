@@ -5,6 +5,33 @@ import { thumbnailUrl } from "../lib/youtube";
 import { songSource, type Song, type TapeSide } from "../types";
 import { SongThumb } from "./SongThumb";
 
+function makeSilenceUrl() {
+  const sampleRate = 8000;
+  const samples = sampleRate * 2;
+  const dataSize = samples * 2;
+  const bytes = new Uint8Array(44 + dataSize);
+  const view = new DataView(bytes.buffer);
+  const ascii = (offset: number, value: string) => {
+    for (let i = 0; i < value.length; i += 1) bytes[offset + i] = value.charCodeAt(i);
+  };
+  ascii(0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  ascii(8, "WAVE");
+  ascii(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  ascii(36, "data");
+  view.setUint32(40, dataSize, true);
+  return URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
+}
+
+const HOLD_AUDIO_SRC = makeSilenceUrl();
+
 declare global {
   interface Window {
     YT?: {
@@ -225,6 +252,7 @@ export function Player({
 }) {
   const playerRef = useRef<YtPlayer | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const holdAudioRef = useRef<HTMLAudioElement | null>(null);
   const ytSlotRef = useRef<HTMLDivElement | null>(null);
   const ytWarmSlotRef = useRef<HTMLDivElement | null>(null);
   const spotifySlotRef = useRef<HTMLDivElement | null>(null);
@@ -252,6 +280,8 @@ export function Player({
   const spotifyPositionRef = useRef(0);
   const ytTimerRef = useRef<number | undefined>(undefined);
   const keepAliveRef = useRef<number | undefined>(undefined);
+  const burstRef = useRef<number[]>([]);
+  const holdTickRef = useRef<(() => void) | null>(null);
   const progressGenRef = useRef(0);
   const ytIdRef = useRef("");
   const ytSyncedKeyRef = useRef<string | null>(null);
@@ -304,12 +334,62 @@ export function Player({
     } catch {
       /* ignore */
     }
-    if (next && document.visibilityState === "hidden") startKeepAlive();
-    if (!next) stopKeepAlive();
+    if (wantPlayRef.current) armBackgroundAudio();
+    else releaseBackgroundAudio();
+  }
+
+  function armBackgroundAudio() {
+    const hold = holdAudioRef.current;
+    if (hold) {
+      if (!hold.src) hold.src = HOLD_AUDIO_SRC;
+      hold.loop = true;
+      hold.muted = false;
+      hold.volume = 0.01;
+      void hold.play().catch(() => {
+        /* ignore */
+      });
+    }
+    startKeepAlive();
+  }
+
+  function releaseBackgroundAudio() {
+    const hold = holdAudioRef.current;
+    if (hold) {
+      hold.pause();
+      try {
+        hold.currentTime = 0;
+      } catch {
+        /* ignore */
+      }
+    }
+    clearBurst();
+    stopKeepAlive();
+  }
+
+  function clearBurst() {
+    for (const id of burstRef.current) window.clearTimeout(id);
+    burstRef.current = [];
+  }
+
+  function resumeWantedBurst() {
+    if (!wantPlayRef.current) return;
+    armBackgroundAudio();
+    clearBurst();
+    for (const ms of [0, 50, 150, 350, 800, 1600, 3200, 6000]) {
+      burstRef.current.push(
+        window.setTimeout(() => {
+          if (wantPlayRef.current) resumeWantedPlayback();
+        }, ms),
+      );
+    }
   }
 
   function resumeWantedPlayback() {
     if (!wantPlayRef.current || switchingRef.current) return;
+    const hold = holdAudioRef.current;
+    if (hold?.paused) void hold.play().catch(() => {
+      /* ignore */
+    });
     const source = sourceRef.current;
     if (source === "youtube") {
       try {
@@ -336,20 +416,34 @@ export function Player({
   }
 
   function startKeepAlive() {
-    if (keepAliveRef.current !== undefined) return;
-    keepAliveRef.current = window.setInterval(() => {
-      if (!wantPlayRef.current) {
-        stopKeepAlive();
-        return;
-      }
-      resumeWantedPlayback();
-    }, 800);
+    if (keepAliveRef.current === undefined) {
+      keepAliveRef.current = window.setInterval(() => {
+        if (!wantPlayRef.current) {
+          stopKeepAlive();
+          return;
+        }
+        resumeWantedPlayback();
+      }, 500);
+    }
+    const hold = holdAudioRef.current;
+    if (hold && !holdTickRef.current) {
+      holdTickRef.current = () => {
+        if (wantPlayRef.current) resumeWantedPlayback();
+      };
+      hold.addEventListener("timeupdate", holdTickRef.current);
+    }
   }
 
   function stopKeepAlive() {
-    if (keepAliveRef.current === undefined) return;
-    window.clearInterval(keepAliveRef.current);
-    keepAliveRef.current = undefined;
+    if (keepAliveRef.current !== undefined) {
+      window.clearInterval(keepAliveRef.current);
+      keepAliveRef.current = undefined;
+    }
+    const hold = holdAudioRef.current;
+    if (hold && holdTickRef.current) {
+      hold.removeEventListener("timeupdate", holdTickRef.current);
+      holdTickRef.current = null;
+    }
   }
 
   function playSpotify(fromStart = false) {
@@ -1258,28 +1352,35 @@ export function Player({
   useEffect(() => {
     function onVisibility() {
       if (!wantPlayRef.current) {
-        stopKeepAlive();
+        releaseBackgroundAudio();
         return;
       }
-      resumeWantedPlayback();
-      if (document.visibilityState === "hidden") startKeepAlive();
-      else stopKeepAlive();
+      if (document.visibilityState === "hidden") resumeWantedBurst();
+      else resumeWantedPlayback();
     }
     function onResume() {
-      if (wantPlayRef.current) resumeWantedPlayback();
+      if (wantPlayRef.current) resumeWantedBurst();
+    }
+    function onHide() {
+      if (wantPlayRef.current) resumeWantedBurst();
     }
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pageshow", onResume);
+    window.addEventListener("pagehide", onHide);
     window.addEventListener("focus", onResume);
+    window.addEventListener("blur", onHide);
     document.addEventListener("resume", onResume);
-    document.addEventListener("freeze", stopKeepAlive);
+    document.addEventListener("freeze", onHide);
     return () => {
+      clearBurst();
       stopKeepAlive();
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pageshow", onResume);
+      window.removeEventListener("pagehide", onHide);
       window.removeEventListener("focus", onResume);
+      window.removeEventListener("blur", onHide);
       document.removeEventListener("resume", onResume);
-      document.removeEventListener("freeze", stopKeepAlive);
+      document.removeEventListener("freeze", onHide);
     };
   }, []);
 
@@ -1306,12 +1407,11 @@ export function Player({
       pendingPlayRef.current = true;
       markPlaying(true);
       eject();
-      resumeWantedPlayback();
+      resumeWantedBurst();
     };
     const onPause = () => {
       wantPlayRef.current = false;
       pendingPlayRef.current = false;
-      stopKeepAlive();
       markPlaying(false);
       if (sourceRef.current === "youtube") pauseYouTube();
       else if (sourceRef.current === "spotify") pauseSpotify();
@@ -1340,12 +1440,19 @@ export function Player({
       }
       if (audioRef.current) audioRef.current.currentTime = next;
     };
+    const onPiP = async () => {
+      const iframe = playerRef.current?.getIframe?.();
+      if (iframe && "requestPictureInPicture" in iframe) {
+        await (iframe as unknown as HTMLVideoElement).requestPictureInPicture();
+      }
+    };
     try {
       navigator.mediaSession.setActionHandler("play", onPlay);
       navigator.mediaSession.setActionHandler("pause", onPause);
       navigator.mediaSession.setActionHandler("previoustrack", () => goToPrev());
       navigator.mediaSession.setActionHandler("nexttrack", () => goToNext());
       navigator.mediaSession.setActionHandler("seekto", onSeek);
+      navigator.mediaSession.setActionHandler("enterpictureinpicture", onPiP);
     } catch {
       /* ignore */
     }
@@ -1356,6 +1463,7 @@ export function Player({
         navigator.mediaSession.setActionHandler("previoustrack", null);
         navigator.mediaSession.setActionHandler("nexttrack", null);
         navigator.mediaSession.setActionHandler("seekto", null);
+        navigator.mediaSession.setActionHandler("enterpictureinpicture", null);
       } catch {
         /* ignore */
       }
@@ -1413,6 +1521,7 @@ export function Player({
         audio.pause();
       } else {
         wantPlayRef.current = true;
+        armBackgroundAudio();
         try {
           await audio.play();
         } catch {
@@ -1448,6 +1557,7 @@ export function Player({
   return (
     <div className="player">
       <audio ref={audioRef} preload="auto" playsInline />
+      <audio ref={holdAudioRef} loop playsInline preload="auto" tabIndex={-1} />
       <div className="embed-host" aria-hidden="true">
         <div ref={ytSlotRef} className="embed-slot" />
         <div ref={ytWarmSlotRef} className="embed-slot embed-warm" />

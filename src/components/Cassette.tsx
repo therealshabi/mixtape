@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { findCover } from "../data/covers";
-import { findSticker } from "../data/stickers";
+import { resolveSticker } from "../data/stickers";
 import type { Mixtape, PlacedSticker, Song, TapeSide } from "../types";
 
 export function CassetteTape({
@@ -104,7 +104,7 @@ export function CassetteCase({
           {stickers.length > 0 && (
             <div className={`case-stickers ${editable ? "editable" : ""}`}>
               {stickers.map((placed, index) => {
-                const def = findSticker(placed.id);
+                const def = resolveSticker(placed);
                 if (!def) return null;
                 return (
                   <div

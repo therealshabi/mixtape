@@ -70,6 +70,30 @@ export const THEMES: ThemeDef[] = [
       { id: "goodday-butterfly", rotation: 12 },
     ],
   },
+  {
+    id: "office",
+    label: "Office",
+    blurb: "Coffee, tabs, and a 4pm song",
+    heroCover: "brown-one",
+    heroCase: "brown-two",
+    stickers: [
+      { id: "office-mug", rotation: -8 },
+      { id: "office-notes", rotation: 6 },
+      { id: "office-plant", rotation: 10 },
+    ],
+  },
+  {
+    id: "commute",
+    label: "Commute",
+    blurb: "Red lights and a playlist",
+    heroCover: "blue-brown",
+    heroCase: "brown-three",
+    stickers: [
+      { id: "commute-taigun", rotation: -8 },
+      { id: "commute-bike", rotation: 6 },
+      { id: "commute-lights", rotation: 10 },
+    ],
+  },
 ];
 
 export function findTheme(id: string | null | undefined): ThemeDef {

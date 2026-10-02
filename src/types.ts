@@ -1,6 +1,6 @@
 export type TapeSide = "A" | "B";
 export type SongSource = "youtube" | "spotify" | "file";
-export type ThemeId = "none" | "birthday" | "anniversary" | "travel" | "good-day";
+export type ThemeId = "none" | "birthday" | "anniversary" | "travel" | "good-day" | "office" | "commute";
 
 export type Song = {
   id: string;
@@ -14,6 +14,7 @@ export type Song = {
 export type PlacedSticker = {
   id: string;
   rotation: number;
+  image?: string;
 };
 
 export type Mixtape = {

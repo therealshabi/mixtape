@@ -46,6 +46,22 @@ html[data-theme="good-day"] {
   --paper-line: #c3d39a;
   --margin: #d39b3a;
 }
+html[data-theme="office"] {
+  --bg: #d6c7b3;
+  --hand: #4a3a2c;
+  --muted: #6e5f52;
+  --header-bg: #f6f1ea;
+  --paper-line: #c9b49a;
+  --margin: #b85c4a;
+}
+html[data-theme="commute"] {
+  --bg: #bfc6d4;
+  --hand: #2d3d5c;
+  --muted: #5a6478;
+  --header-bg: #f3f4f8;
+  --paper-line: #b4bbcc;
+  --margin: #d4893a;
+}
 
 html, body, #root {
   min-height: 100%;
@@ -86,6 +102,18 @@ html[data-theme="travel"] .app-shell {
 html[data-theme="good-day"],
 html[data-theme="good-day"] .app-shell {
   background-image: url("/assets/themes/good-day.svg");
+  background-size: 240px 240px;
+  background-attachment: fixed;
+}
+html[data-theme="office"],
+html[data-theme="office"] .app-shell {
+  background-image: url("/assets/themes/office.svg");
+  background-size: 240px 240px;
+  background-attachment: fixed;
+}
+html[data-theme="commute"],
+html[data-theme="commute"] .app-shell {
+  background-image: url("/assets/themes/commute.svg?v=9");
   background-size: 240px 240px;
   background-attachment: fixed;
 }
@@ -665,6 +693,23 @@ h2 {
   text-transform: uppercase;
   color: #6b7280;
   margin-bottom: 10px;
+}
+
+.sticker-yours-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6b7280;
+  margin: 0 0 8px;
+}
+
+.sticker-panel .sticker-grid + .sticker-yours-label,
+.sticker-panel .sticker-yours-label + .sticker-grid + .sticker-grid {
+  margin-top: 10px;
+}
+
+.sticker-panel .file-btn {
+  margin-top: 12px;
 }
 
 .sticker-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-bottom: 10px; }
@@ -1297,7 +1342,7 @@ h2 {
 
 .theme-picker {
   width: 100%;
-  max-width: 520px;
+  max-width: 560px;
   text-align: center;
 }
 .theme-picker > p {
@@ -1309,7 +1354,7 @@ h2 {
 }
 .theme-row {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 .theme-chip {
@@ -1336,7 +1381,9 @@ h2 {
 .theme-chip.theme-birthday,
 .theme-chip.theme-anniversary,
 .theme-chip.theme-travel,
-.theme-chip.theme-good-day {
+.theme-chip.theme-good-day,
+.theme-chip.theme-office,
+.theme-chip.theme-commute {
   background-size: auto, 110px;
   background-position: center;
 }
@@ -1356,6 +1403,14 @@ h2 {
   background-color: #d7e6b5;
   background-image: linear-gradient(rgba(255,255,255,.42), rgba(255,255,255,.42)), url("/assets/themes/good-day.svg");
 }
+.theme-chip.theme-office {
+  background-color: #d6c7b3;
+  background-image: linear-gradient(rgba(255,255,255,.48), rgba(255,255,255,.48)), url("/assets/themes/office.svg");
+}
+.theme-chip.theme-commute {
+  background-color: #bfc6d4;
+  background-image: linear-gradient(rgba(255,255,255,.48), rgba(255,255,255,.48)), url("/assets/themes/commute.svg?v=9");
+}
 .theme-chip.on.theme-birthday {
   background-image: linear-gradient(rgba(255,255,255,.18), rgba(255,255,255,.18)), url("/assets/themes/birthday.svg");
 }
@@ -1367,6 +1422,12 @@ h2 {
 }
 .theme-chip.on.theme-good-day {
   background-image: linear-gradient(rgba(255,255,255,.18), rgba(255,255,255,.18)), url("/assets/themes/good-day.svg");
+}
+.theme-chip.on.theme-office {
+  background-image: linear-gradient(rgba(255,255,255,.18), rgba(255,255,255,.18)), url("/assets/themes/office.svg");
+}
+.theme-chip.on.theme-commute {
+  background-image: linear-gradient(rgba(255,255,255,.18), rgba(255,255,255,.18)), url("/assets/themes/commute.svg?v=9");
 }
 .theme-chip span { font-size: 12px; font-weight: 600; }
 

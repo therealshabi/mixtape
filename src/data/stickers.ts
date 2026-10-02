@@ -3,10 +3,13 @@ export type StickerCategory =
   | "anniversary"
   | "travel"
   | "good-day"
+  | "office"
+  | "commute"
   | "fall"
   | "stars"
   | "flowers"
-  | "ribbons";
+  | "ribbons"
+  | "custom";
 
 export type StickerDef = {
   id: string;
@@ -20,6 +23,8 @@ export const STICKER_CATEGORIES: { id: StickerCategory; label: string }[] = [
   { id: "anniversary", label: "Anniversary" },
   { id: "travel", label: "Travel" },
   { id: "good-day", label: "Good day" },
+  { id: "office", label: "Office" },
+  { id: "commute", label: "Commute" },
   { id: "fall", label: "Fall" },
   { id: "stars", label: "Stars" },
   { id: "flowers", label: "Flowers" },
@@ -49,6 +54,17 @@ export const STICKERS: StickerDef[] = [
   { id: "goodday-daisy", label: "Daisy", category: "good-day", image: "/assets/stickers/goodday-daisy.png" },
   { id: "goodday-butterfly", label: "Butterfly", category: "good-day", image: "/assets/stickers/goodday-butterfly.png" },
   { id: "goodday-lemonade", label: "Lemonade", category: "good-day", image: "/assets/stickers/goodday-lemonade.png" },
+  { id: "office-mug", label: "Mug", category: "office", image: "/assets/stickers/office-mug.png" },
+  { id: "office-laptop", label: "Laptop", category: "office", image: "/assets/stickers/office-laptop.png" },
+  { id: "office-notes", label: "Sticky notes", category: "office", image: "/assets/stickers/office-notes.png" },
+  { id: "office-plant", label: "Desk plant", category: "office", image: "/assets/stickers/office-plant.png" },
+  { id: "commute-taigun", label: "Taigun", category: "commute", image: "/assets/stickers/commute-taigun.png" },
+  { id: "commute-car", label: "Car", category: "commute", image: "/assets/stickers/commute-car.png" },
+  { id: "commute-bike", label: "Bike", category: "commute", image: "/assets/stickers/commute-bike.png" },
+  { id: "commute-lights", label: "Traffic lights", category: "commute", image: "/assets/stickers/commute-lights.png" },
+  { id: "commute-train", label: "Train", category: "commute", image: "/assets/stickers/commute-train.png" },
+  { id: "commute-headphones", label: "Headphones", category: "commute", image: "/assets/stickers/commute-headphones.png" },
+  { id: "commute-ticket", label: "Ticket", category: "commute", image: "/assets/stickers/commute-ticket.png" },
   { id: "fall-poststamp", label: "Poststamp", category: "fall", image: "/assets/stickers/fall-poststamp.png" },
   { id: "fall-citrus", label: "Citrus", category: "fall", image: "/assets/stickers/fall-citrus.png" },
   { id: "fall-coffee", label: "Coffee", category: "fall", image: "/assets/stickers/fall-coffee.png" },
@@ -94,4 +110,11 @@ export const PICKABLE_STICKERS = STICKERS.filter((sticker) => !HIDDEN_ALIAS_IDS.
 
 export function findSticker(id: string) {
   return STICKERS.find((sticker) => sticker.id === id);
+}
+
+export function resolveSticker(placed: { id: string; image?: string }): StickerDef | undefined {
+  if (placed.image) {
+    return { id: placed.id, label: "Custom", category: "custom", image: placed.image };
+  }
+  return findSticker(placed.id);
 }
