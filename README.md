@@ -5,15 +5,16 @@ A cassette-style mixtape you can send to someone. Same flow as the original [Rep
 Live demo: [sherry-mixtape.netlify.app](https://sherry-mixtape.netlify.app)
 
 <p align="center">
-  <img src="docs/screenshots/home.png" alt="Home: pick a vibe, cassette, and note" width="720">
+  <img src="docs/screenshots/home.png" alt="Home: pick a vibe, cassette, and note" width="680">
 </p>
 <p align="center">
-  <img src="docs/screenshots/create.png" alt="Create: add stickers to the cassette case" width="360">
-  &nbsp;
-  <img src="docs/screenshots/listen.png" alt="Listen: opened tape with a handwritten note" width="360">
+  <img src="docs/screenshots/create.png" alt="Create: add stickers to the cassette case" width="680">
+</p>
+<p align="center">
+  <img src="docs/screenshots/listen.png" alt="Listen: opened tape with a handwritten note" width="680">
 </p>
 
-No accounts. No API keys. Anyone can fork this repo and deploy their own copy.
+Anyone can fork this repo and deploy their own copy. No accounts. No API keys.
 
 ## Run locally
 
