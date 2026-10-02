@@ -45,6 +45,7 @@ export function CreatePage() {
   const [link, setLink] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [shrinkProgress, setShrinkProgress] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const photoRef = useRef<HTMLInputElement>(null);
   const stickerFileRef = useRef<HTMLInputElement>(null);
@@ -99,7 +100,7 @@ export function CreatePage() {
     setError("");
     setLoading(true);
     try {
-      const song = await importLocalSong(file);
+      const song = await importLocalSong(file, (progress) => setShrinkProgress(progress));
       setTape((current) =>
         side === "A"
           ? { ...current, sideA: [...current.sideA, song] }
@@ -109,6 +110,7 @@ export function CreatePage() {
       setError(err instanceof Error ? err.message : "Couldn't add that file");
     } finally {
       setLoading(false);
+      setShrinkProgress(null);
     }
   }
 
@@ -410,9 +412,9 @@ export function CreatePage() {
             onClick={() => fileRef.current?.click()}
             disabled={loading || currentSongs.length >= MAX_SONGS_PER_SIDE}
           >
-            Add from this device
+            {shrinkProgress === null ? "Add from this device" : `Making it smaller… ${Math.round(shrinkProgress * 100)}%`}
           </button>
-          <p className="hint">Device files are uploaded with the share link (about 8 MB max).</p>
+          <p className="hint">Device songs travel with the share link. Big files are shrunk to under 4 MB automatically.</p>
           {error && <p className="form-error">{error}</p>}
         </div>
       )}

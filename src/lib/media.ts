@@ -3,6 +3,7 @@ import { compressArtwork, fallbackArtworkDataUrl, readAudioTags, titleFromFilena
 import { hostAudioFile, MAX_SHARE_BYTES } from "./hostAudio";
 import { randomId } from "./id";
 import { getLocalFile, saveLocalFile } from "./idb";
+import { shrinkAudio } from "./shrinkAudio";
 import { fetchTrack, isYouTubeUrl, parseYouTubeId, thumbnailUrl, watchUrl } from "./youtube";
 
 const SPOTIFY_TRACK = /(?:open\.spotify\.com\/(?:intl-[a-z]{2}\/)?track\/|spotify:track:)([A-Za-z0-9]+)/i;
@@ -94,18 +95,19 @@ export async function fetchYouTubeSong(input: string): Promise<Song> {
   return { ...track, source: "youtube" };
 }
 
-export async function importLocalSong(file: File): Promise<Song> {
-  if (!file.type.startsWith("audio/") && !/\.(mp3|m4a|aac|wav|ogg|flac|aiff)$/i.test(file.name)) {
+export async function importLocalSong(original: File, onShrink?: (progress: number) => void): Promise<Song> {
+  if (!original.type.startsWith("audio/") && !/\.(mp3|m4a|aac|wav|ogg|flac|aiff)$/i.test(original.name)) {
     throw new Error("Please pick an audio file");
   }
+  const fromName = titleFromFilename(original.name);
+  const tags = await readAudioTags(original, original.name);
+  let file = original;
   if (file.size > MAX_SHARE_BYTES) {
-    const mb = (file.size / 1_000_000).toFixed(1);
-    throw new Error(`That song is ${mb} MB. Device songs need to be under 4 MB to share — try a lower-quality MP3 (128 kbps).`);
+    onShrink?.(0);
+    file = await shrinkAudio(file, MAX_SHARE_BYTES, onShrink);
   }
   const id = `file-${randomId()}`;
   await saveLocalFile(id, file);
-  const fromName = titleFromFilename(file.name);
-  const tags = await readAudioTags(file, file.name);
   let artworkUrl = "";
   if (tags.artwork) {
     try {
