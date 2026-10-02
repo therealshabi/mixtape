@@ -1452,7 +1452,7 @@ export function Player({
       navigator.mediaSession.setActionHandler("previoustrack", () => goToPrev());
       navigator.mediaSession.setActionHandler("nexttrack", () => goToNext());
       navigator.mediaSession.setActionHandler("seekto", onSeek);
-      navigator.mediaSession.setActionHandler("enterpictureinpicture", onPiP);
+      navigator.mediaSession.setActionHandler("enterpictureinpicture" as MediaSessionAction, onPiP);
     } catch {
       /* ignore */
     }
@@ -1463,7 +1463,7 @@ export function Player({
         navigator.mediaSession.setActionHandler("previoustrack", null);
         navigator.mediaSession.setActionHandler("nexttrack", null);
         navigator.mediaSession.setActionHandler("seekto", null);
-        navigator.mediaSession.setActionHandler("enterpictureinpicture", null);
+        navigator.mediaSession.setActionHandler("enterpictureinpicture" as MediaSessionAction, null);
       } catch {
         /* ignore */
       }
