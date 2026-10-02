@@ -37,6 +37,7 @@ type YtPlayer = {
   getCurrentTime: () => number;
   getDuration: () => number;
   getPlayerState: () => number;
+  getIframe?: () => HTMLIFrameElement;
   destroy: () => void;
 };
 
@@ -250,6 +251,7 @@ export function Player({
   const spotifyHoldRef = useRef(false);
   const spotifyPositionRef = useRef(0);
   const ytTimerRef = useRef<number | undefined>(undefined);
+  const keepAliveRef = useRef<number | undefined>(undefined);
   const progressGenRef = useRef(0);
   const ytIdRef = useRef("");
   const ytSyncedKeyRef = useRef<string | null>(null);
@@ -295,6 +297,59 @@ export function Player({
   function markPlaying(next: boolean) {
     setPlaying(next);
     onPlayingChangeRef.current?.(next);
+    try {
+      if ("mediaSession" in navigator) {
+        navigator.mediaSession.playbackState = next ? "playing" : "paused";
+      }
+    } catch {
+      /* ignore */
+    }
+    if (next && document.visibilityState === "hidden") startKeepAlive();
+    if (!next) stopKeepAlive();
+  }
+
+  function resumeWantedPlayback() {
+    if (!wantPlayRef.current || switchingRef.current) return;
+    const source = sourceRef.current;
+    if (source === "youtube") {
+      try {
+        const player = playerRef.current;
+        if (!player) return;
+        const state = player.getPlayerState?.();
+        if (state === 1) return;
+        player.unMute?.();
+        player.setVolume?.(100);
+        player.playVideo();
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    if (source === "spotify") {
+      playSpotify();
+      return;
+    }
+    if (source === "file") {
+      const audio = audioRef.current;
+      if (audio && audio.paused && !audio.ended) void audio.play();
+    }
+  }
+
+  function startKeepAlive() {
+    if (keepAliveRef.current !== undefined) return;
+    keepAliveRef.current = window.setInterval(() => {
+      if (!wantPlayRef.current) {
+        stopKeepAlive();
+        return;
+      }
+      resumeWantedPlayback();
+    }, 800);
+  }
+
+  function stopKeepAlive() {
+    if (keepAliveRef.current === undefined) return;
+    window.clearInterval(keepAliveRef.current);
+    keepAliveRef.current = undefined;
   }
 
   function playSpotify(fromStart = false) {
@@ -420,6 +475,18 @@ export function Player({
     if (typeof nextDuration === "number" && Number.isFinite(nextDuration) && nextDuration > 0) {
       setDuration(nextDuration);
     }
+    try {
+      const duration = typeof nextDuration === "number" && nextDuration > 0 ? nextDuration : 0;
+      if ("mediaSession" in navigator && navigator.mediaSession.setPositionState && duration > 0) {
+        navigator.mediaSession.setPositionState({
+          duration,
+          playbackRate: 1,
+          position: Math.max(0, Math.min(nextTime, duration)),
+        });
+      }
+    } catch {
+      /* ignore */
+    }
   }
 
   function startYtTimer() {
@@ -523,7 +590,12 @@ export function Player({
       startYtTimer();
     } else if (event?.data === 2) {
       clearYtTimer();
-      if (!switchingRef.current && !wantPlayRef.current) markPlaying(false);
+      if (switchingRef.current) return;
+      if (wantPlayRef.current) {
+        resumeWantedPlayback();
+        return;
+      }
+      markPlaying(false);
     } else if (event?.data === 0) {
       clearYtTimer();
       if (switchingRef.current || sourceRef.current !== "youtube") return;
@@ -647,14 +719,24 @@ export function Player({
         markPlaying(true);
         eject();
       } else if (data.isPaused === true) {
-        if (switchingRef.current) return;
-        if (position > 0.25) spotifyPositionRef.current = position;
-        markPlaying(false);
-        if (length > 1 && position > 1 && position >= length - 0.45) {
-          goToNext();
-        }
+        onSpotifyPaused(position, length);
       }
     });
+  }
+
+  function onSpotifyPaused(position: number, length: number) {
+    if (switchingRef.current) return;
+    if (position > 0.25) spotifyPositionRef.current = position;
+    if (length > 1 && position > 1 && position >= length - 0.45) {
+      markPlaying(false);
+      goToNext();
+      return;
+    }
+    if (wantPlayRef.current) {
+      resumeWantedPlayback();
+      return;
+    }
+    markPlaying(false);
   }
 
   async function warmNextTracks() {
@@ -846,6 +928,11 @@ export function Player({
                 /* ignore */
               }
             }
+            try {
+              playerRef.current?.getIframe?.()?.setAttribute("allow", "autoplay; encrypted-media; picture-in-picture");
+            } catch {
+              /* ignore */
+            }
             if (pendingPlayRef.current && songSource(songsRef.current[indexRef.current]) === "youtube") {
               try {
                 playerRef.current?.playVideo();
@@ -960,12 +1047,7 @@ export function Player({
               markPlaying(true);
               eject();
             } else if (data.isPaused === true) {
-              if (switchingRef.current) return;
-              if (position > 0.25) spotifyPositionRef.current = position;
-              markPlaying(false);
-              if (length > 1 && position > 1 && position >= length - 0.45) {
-                goToNext();
-              }
+              onSpotifyPaused(position, length);
             }
           });
         },
@@ -1149,6 +1231,11 @@ export function Player({
     };
     const onPause = () => {
       if (sourceRef.current !== "file") return;
+      if (audio.ended) return;
+      if (wantPlayRef.current && !switchingRef.current) {
+        void audio.play();
+        return;
+      }
       markPlaying(false);
     };
     const onEnded = () => {
@@ -1167,6 +1254,113 @@ export function Player({
       audio.removeEventListener("ended", onEnded);
     };
   }, [songs.length]);
+
+  useEffect(() => {
+    function onVisibility() {
+      if (!wantPlayRef.current) {
+        stopKeepAlive();
+        return;
+      }
+      resumeWantedPlayback();
+      if (document.visibilityState === "hidden") startKeepAlive();
+      else stopKeepAlive();
+    }
+    function onResume() {
+      if (wantPlayRef.current) resumeWantedPlayback();
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pageshow", onResume);
+    window.addEventListener("focus", onResume);
+    document.addEventListener("resume", onResume);
+    document.addEventListener("freeze", stopKeepAlive);
+    return () => {
+      stopKeepAlive();
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pageshow", onResume);
+      window.removeEventListener("focus", onResume);
+      document.removeEventListener("resume", onResume);
+      document.removeEventListener("freeze", stopKeepAlive);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return undefined;
+    const song = currentSong;
+    try {
+      navigator.mediaSession.metadata = song
+        ? new MediaMetadata({
+            title: song.title || "Mixtape",
+            artist: song.artist || "Mixtape",
+            album: hasBothSides ? `Side ${playSide}` : "Mixtape",
+            artwork: song.artworkUrl
+              ? [{ src: song.artworkUrl, sizes: "512x512" }]
+              : [],
+          })
+        : null;
+      navigator.mediaSession.playbackState = playing ? "playing" : "paused";
+    } catch {
+      /* ignore */
+    }
+    const onPlay = () => {
+      wantPlayRef.current = true;
+      pendingPlayRef.current = true;
+      markPlaying(true);
+      eject();
+      resumeWantedPlayback();
+    };
+    const onPause = () => {
+      wantPlayRef.current = false;
+      pendingPlayRef.current = false;
+      stopKeepAlive();
+      markPlaying(false);
+      if (sourceRef.current === "youtube") pauseYouTube();
+      else if (sourceRef.current === "spotify") pauseSpotify();
+      else audioRef.current?.pause();
+    };
+    const onSeek = (details: MediaSessionActionDetails) => {
+      if (details.seekTime == null) return;
+      const next = details.seekTime;
+      applyProgress(next);
+      spotifyPositionRef.current = next;
+      if (sourceRef.current === "youtube") {
+        try {
+          playerRef.current?.seekTo(next, true);
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
+      if (sourceRef.current === "spotify") {
+        try {
+          spotifyRef.current?.seek(Math.round(next));
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
+      if (audioRef.current) audioRef.current.currentTime = next;
+    };
+    try {
+      navigator.mediaSession.setActionHandler("play", onPlay);
+      navigator.mediaSession.setActionHandler("pause", onPause);
+      navigator.mediaSession.setActionHandler("previoustrack", () => goToPrev());
+      navigator.mediaSession.setActionHandler("nexttrack", () => goToNext());
+      navigator.mediaSession.setActionHandler("seekto", onSeek);
+    } catch {
+      /* ignore */
+    }
+    return () => {
+      try {
+        navigator.mediaSession.setActionHandler("play", null);
+        navigator.mediaSession.setActionHandler("pause", null);
+        navigator.mediaSession.setActionHandler("previoustrack", null);
+        navigator.mediaSession.setActionHandler("nexttrack", null);
+        navigator.mediaSession.setActionHandler("seekto", null);
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [currentSong, playing, playSide, hasBothSides]);
 
   if (!songs.length || !currentSong || !source) return null;
   const current = currentSong;
@@ -1253,7 +1447,7 @@ export function Player({
 
   return (
     <div className="player">
-      <audio ref={audioRef} preload="auto" />
+      <audio ref={audioRef} preload="auto" playsInline />
       <div className="embed-host" aria-hidden="true">
         <div ref={ytSlotRef} className="embed-slot" />
         <div ref={ytWarmSlotRef} className="embed-slot embed-warm" />
