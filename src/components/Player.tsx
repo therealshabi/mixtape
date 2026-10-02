@@ -5,33 +5,6 @@ import { thumbnailUrl } from "../lib/youtube";
 import { songSource, type Song, type TapeSide } from "../types";
 import { SongThumb } from "./SongThumb";
 
-function makeSilenceUrl() {
-  const sampleRate = 8000;
-  const samples = sampleRate * 2;
-  const dataSize = samples * 2;
-  const bytes = new Uint8Array(44 + dataSize);
-  const view = new DataView(bytes.buffer);
-  const ascii = (offset: number, value: string) => {
-    for (let i = 0; i < value.length; i += 1) bytes[offset + i] = value.charCodeAt(i);
-  };
-  ascii(0, "RIFF");
-  view.setUint32(4, 36 + dataSize, true);
-  ascii(8, "WAVE");
-  ascii(12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  ascii(36, "data");
-  view.setUint32(40, dataSize, true);
-  return URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
-}
-
-const HOLD_AUDIO_SRC = makeSilenceUrl();
-
 declare global {
   interface Window {
     YT?: {
@@ -252,7 +225,6 @@ export function Player({
 }) {
   const playerRef = useRef<YtPlayer | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const holdAudioRef = useRef<HTMLAudioElement | null>(null);
   const ytSlotRef = useRef<HTMLDivElement | null>(null);
   const ytWarmSlotRef = useRef<HTMLDivElement | null>(null);
   const spotifySlotRef = useRef<HTMLDivElement | null>(null);
@@ -279,9 +251,9 @@ export function Player({
   const spotifyHoldRef = useRef(false);
   const spotifyPositionRef = useRef(0);
   const ytTimerRef = useRef<number | undefined>(undefined);
-  const keepAliveRef = useRef<number | undefined>(undefined);
-  const burstRef = useRef<number[]>([]);
-  const holdTickRef = useRef<(() => void) | null>(null);
+  const hiddenResumeTimerRef = useRef<number | undefined>(undefined);
+  const hiddenResumeTriesRef = useRef(0);
+  const positionRef = useRef(0);
   const progressGenRef = useRef(0);
   const ytIdRef = useRef("");
   const ytSyncedKeyRef = useRef<string | null>(null);
@@ -334,62 +306,71 @@ export function Player({
     } catch {
       /* ignore */
     }
-    if (wantPlayRef.current) armBackgroundAudio();
-    else releaseBackgroundAudio();
   }
 
-  function armBackgroundAudio() {
-    const hold = holdAudioRef.current;
-    if (hold) {
-      if (!hold.src) hold.src = HOLD_AUDIO_SRC;
-      hold.loop = true;
-      hold.muted = false;
-      hold.volume = 0.01;
-      void hold.play().catch(() => {
-        /* ignore */
-      });
-    }
-    startKeepAlive();
-  }
-
-  function releaseBackgroundAudio() {
-    const hold = holdAudioRef.current;
-    if (hold) {
-      hold.pause();
-      try {
-        hold.currentTime = 0;
-      } catch {
-        /* ignore */
+  function capturePosition() {
+    try {
+      if (sourceRef.current === "youtube") {
+        const next = playerRef.current?.getCurrentTime?.();
+        if (typeof next === "number" && next > 0.25) positionRef.current = next;
+      } else if (sourceRef.current === "spotify") {
+        if (spotifyPositionRef.current > 0.25) positionRef.current = spotifyPositionRef.current;
+      } else {
+        const next = audioRef.current?.currentTime ?? 0;
+        if (next > 0.25) positionRef.current = next;
       }
+    } catch {
+      /* ignore */
     }
-    clearBurst();
-    stopKeepAlive();
   }
 
-  function clearBurst() {
-    for (const id of burstRef.current) window.clearTimeout(id);
-    burstRef.current = [];
+  function clearHiddenResume() {
+    if (hiddenResumeTimerRef.current !== undefined) {
+      window.clearTimeout(hiddenResumeTimerRef.current);
+      hiddenResumeTimerRef.current = undefined;
+    }
   }
 
-  function resumeWantedBurst() {
-    if (!wantPlayRef.current) return;
-    armBackgroundAudio();
-    clearBurst();
-    for (const ms of [0, 50, 150, 350, 800, 1600, 3200, 6000]) {
-      burstRef.current.push(
-        window.setTimeout(() => {
-          if (wantPlayRef.current) resumeWantedPlayback();
-        }, ms),
-      );
+  function resetHiddenResume() {
+    clearHiddenResume();
+    hiddenResumeTriesRef.current = 0;
+  }
+
+  async function tryPictureInPicture() {
+    try {
+      const iframe = playerRef.current?.getIframe?.();
+      if (!iframe || document.pictureInPictureElement) return;
+      const pip = iframe as HTMLIFrameElement & { requestPictureInPicture?: () => Promise<unknown> };
+      if (typeof pip.requestPictureInPicture === "function") {
+        await pip.requestPictureInPicture();
+      }
+    } catch {
+      /* cross-origin YouTube iframe often rejects PiP */
     }
+  }
+
+  function tryKeepPlaying(reason: "hide" | "pause" | "show" | "session") {
+    if (!wantPlayRef.current || switchingRef.current) return;
+    resumeWantedPlayback();
+    if (reason === "show" || reason === "session") {
+      resetHiddenResume();
+      return;
+    }
+    if (hiddenResumeTriesRef.current >= 2) return;
+    clearHiddenResume();
+    hiddenResumeTimerRef.current = window.setTimeout(() => {
+      hiddenResumeTriesRef.current += 1;
+      if (wantPlayRef.current) resumeWantedPlayback();
+    }, reason === "hide" ? 80 : 280);
   }
 
   function resumeWantedPlayback() {
     if (!wantPlayRef.current || switchingRef.current) return;
-    const hold = holdAudioRef.current;
-    if (hold?.paused) void hold.play().catch(() => {
-      /* ignore */
-    });
+    if (document.visibilityState === "hidden") {
+      if (hiddenResumeTriesRef.current >= 3) return;
+      hiddenResumeTriesRef.current += 1;
+    }
+    const saved = positionRef.current;
     const source = sourceRef.current;
     if (source === "youtube") {
       try {
@@ -397,6 +378,12 @@ export function Player({
         if (!player) return;
         const state = player.getPlayerState?.();
         if (state === 1) return;
+        if (saved > 0.5) {
+          const now = player.getCurrentTime?.() ?? 0;
+          if (!Number.isFinite(now) || now < 0.4 || Math.abs(now - saved) > 1.25) {
+            player.seekTo(saved, true);
+          }
+        }
         player.unMute?.();
         player.setVolume?.(100);
         player.playVideo();
@@ -411,38 +398,9 @@ export function Player({
     }
     if (source === "file") {
       const audio = audioRef.current;
-      if (audio && audio.paused && !audio.ended) void audio.play();
-    }
-  }
-
-  function startKeepAlive() {
-    if (keepAliveRef.current === undefined) {
-      keepAliveRef.current = window.setInterval(() => {
-        if (!wantPlayRef.current) {
-          stopKeepAlive();
-          return;
-        }
-        resumeWantedPlayback();
-      }, 500);
-    }
-    const hold = holdAudioRef.current;
-    if (hold && !holdTickRef.current) {
-      holdTickRef.current = () => {
-        if (wantPlayRef.current) resumeWantedPlayback();
-      };
-      hold.addEventListener("timeupdate", holdTickRef.current);
-    }
-  }
-
-  function stopKeepAlive() {
-    if (keepAliveRef.current !== undefined) {
-      window.clearInterval(keepAliveRef.current);
-      keepAliveRef.current = undefined;
-    }
-    const hold = holdAudioRef.current;
-    if (hold && holdTickRef.current) {
-      hold.removeEventListener("timeupdate", holdTickRef.current);
-      holdTickRef.current = null;
+      if (!audio || audio.ended) return;
+      if (saved > 0.5 && Math.abs(audio.currentTime - saved) > 1.25) audio.currentTime = saved;
+      if (audio.paused) void audio.play();
     }
   }
 
@@ -557,6 +515,7 @@ export function Player({
   function resetProgress() {
     progressGenRef.current += 1;
     spotifyPositionRef.current = 0;
+    positionRef.current = 0;
     setTime(0);
     setDuration(0);
     clearYtTimer();
@@ -565,7 +524,13 @@ export function Player({
 
   function applyProgress(nextTime: number, nextDuration?: number, gen = progressGenRef.current) {
     if (gen !== progressGenRef.current) return;
-    if (Number.isFinite(nextTime) && nextTime >= 0) setTime(nextTime);
+    if (Number.isFinite(nextTime) && nextTime >= 0) {
+      setTime(nextTime);
+      if (nextTime > 0.25) {
+        positionRef.current = nextTime;
+        if (sourceRef.current === "spotify") spotifyPositionRef.current = nextTime;
+      }
+    }
     if (typeof nextDuration === "number" && Number.isFinite(nextDuration) && nextDuration > 0) {
       setDuration(nextDuration);
     }
@@ -679,20 +644,33 @@ export function Player({
     if (event?.data === 1) {
       if (!wantPlayRef.current) return;
       pendingPlayRef.current = false;
+      resetHiddenResume();
       markPlaying(true);
       eject();
       startYtTimer();
     } else if (event?.data === 2) {
       clearYtTimer();
       if (switchingRef.current) return;
+      capturePosition();
       if (wantPlayRef.current) {
-        resumeWantedPlayback();
+        tryKeepPlaying("pause");
         return;
       }
       markPlaying(false);
     } else if (event?.data === 0) {
       clearYtTimer();
       if (switchingRef.current || sourceRef.current !== "youtube") return;
+      const length = (() => {
+        try {
+          return playerRef.current?.getDuration?.() || 0;
+        } catch {
+          return 0;
+        }
+      })();
+      if (document.visibilityState === "hidden" && length > 0 && positionRef.current < length - 1.5) {
+        markPlaying(false);
+        return;
+      }
       markPlaying(false);
       goToNext();
     }
@@ -827,7 +805,7 @@ export function Player({
       return;
     }
     if (wantPlayRef.current) {
-      resumeWantedPlayback();
+      tryKeepPlaying("pause");
       return;
     }
     markPlaying(false);
@@ -1351,36 +1329,25 @@ export function Player({
 
   useEffect(() => {
     function onVisibility() {
-      if (!wantPlayRef.current) {
-        releaseBackgroundAudio();
+      if (document.visibilityState === "hidden") {
+        capturePosition();
+        if (wantPlayRef.current) {
+          void tryPictureInPicture();
+          tryKeepPlaying("hide");
+        }
         return;
       }
-      if (document.visibilityState === "hidden") resumeWantedBurst();
-      else resumeWantedPlayback();
+      resetHiddenResume();
+      if (wantPlayRef.current) tryKeepPlaying("show");
     }
-    function onResume() {
-      if (wantPlayRef.current) resumeWantedBurst();
-    }
-    function onHide() {
-      if (wantPlayRef.current) resumeWantedBurst();
+    function onPageShow() {
+      if (wantPlayRef.current) tryKeepPlaying("show");
     }
     document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("pageshow", onResume);
-    window.addEventListener("pagehide", onHide);
-    window.addEventListener("focus", onResume);
-    window.addEventListener("blur", onHide);
-    document.addEventListener("resume", onResume);
-    document.addEventListener("freeze", onHide);
+    window.addEventListener("pageshow", onPageShow);
     return () => {
-      clearBurst();
-      stopKeepAlive();
       document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("pageshow", onResume);
-      window.removeEventListener("pagehide", onHide);
-      window.removeEventListener("focus", onResume);
-      window.removeEventListener("blur", onHide);
-      document.removeEventListener("resume", onResume);
-      document.removeEventListener("freeze", onHide);
+      window.removeEventListener("pageshow", onPageShow);
     };
   }, []);
 
@@ -1407,7 +1374,7 @@ export function Player({
       pendingPlayRef.current = true;
       markPlaying(true);
       eject();
-      resumeWantedBurst();
+      tryKeepPlaying("session");
     };
     const onPause = () => {
       wantPlayRef.current = false;
@@ -1494,6 +1461,7 @@ export function Player({
               ytIdRef.current = current.id;
               player.loadVideoById(current.id);
             }
+            if (positionRef.current > 0.5) player.seekTo(positionRef.current, true);
             player.playVideo();
           }
         } else {
@@ -1521,7 +1489,6 @@ export function Player({
         audio.pause();
       } else {
         wantPlayRef.current = true;
-        armBackgroundAudio();
         try {
           await audio.play();
         } catch {
@@ -1534,6 +1501,7 @@ export function Player({
   function seekTo(next: number) {
     const clamped = safeDuration > 0 ? Math.max(0, Math.min(next, safeDuration)) : 0;
     setTime(clamped);
+    positionRef.current = clamped;
     spotifyPositionRef.current = clamped;
     if (source === "youtube") {
       try {
@@ -1557,7 +1525,6 @@ export function Player({
   return (
     <div className="player">
       <audio ref={audioRef} preload="auto" playsInline />
-      <audio ref={holdAudioRef} loop playsInline preload="auto" tabIndex={-1} />
       <div className="embed-host" aria-hidden="true">
         <div ref={ytSlotRef} className="embed-slot" />
         <div ref={ytWarmSlotRef} className="embed-slot embed-warm" />
