@@ -3,6 +3,7 @@ import { Link, useLocation, useParams } from "react-router-dom";
 import { CassetteCase, FlippingTape } from "../components/Cassette";
 import { NoteCard } from "../components/NoteCard";
 import { Player } from "../components/Player";
+import { copyText } from "../lib/clipboard";
 import { decodeMixtape, fetchTapePayload, isTapeId, listenUrl, mixtapePayload } from "../lib/share";
 import { useTheme } from "../lib/theme";
 import type { TapeSide } from "../types";
@@ -168,13 +169,9 @@ export function SharePage() {
   const songs = [...tape.sideA, ...tape.sideB];
 
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setCopied(false);
-    }
+    const ok = await copyText(shareUrl);
+    setCopied(ok);
+    if (ok) window.setTimeout(() => setCopied(false), 2000);
   }
 
   const hasUnhosted = songs.some((song) => song.source === "file" && !song.url.startsWith("http"));

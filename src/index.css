@@ -1517,6 +1517,7 @@ h2 {
   .hero-tape .tape-photo { width: 346px; }
   .hero-case .case-photo { width: 358px; }
   .tape-photo, .case-photo { width: min(358px, 100%); }
+  .case-stay { width: min(358px, 100%); }
   .tape-photo { height: auto; aspect-ratio: 346 / 223; }
   .case-photo { height: auto; aspect-ratio: 358 / 230; }
   .sticker-grid { grid-template-columns: repeat(4, 1fr); }
